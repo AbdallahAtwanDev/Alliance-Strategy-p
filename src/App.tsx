@@ -20,7 +20,8 @@ import {
   X,
 } from 'lucide-react';
 import { supabase } from './lib/supabase';
-import { Login } from './components/Login';
+import { BrandMark } from './components/BrandMark';
+import { Login, type AuthMode } from './components/Login';
 import type { Member, MemberInsert, MemberRole, MemberUpdate } from './types/database';
 
 type GroupId = 1 | 2 | 3 | 4;
@@ -145,7 +146,11 @@ async function exportNode(node: HTMLElement | null, fileName: string) {
 }
 
 export default function App() {
-  const [authenticated, setAuthenticated] = useState(() => localStorage.getItem('samd-authenticated') === 'true');
+  const [authMode, setAuthMode] = useState<AuthMode | null>(() => {
+    const savedMode = localStorage.getItem('samd-auth-mode') as AuthMode | null;
+    if (savedMode === 'admin' || savedMode === 'viewer') return savedMode;
+    return localStorage.getItem('samd-authenticated') === 'true' ? 'admin' : null;
+  });
   const [members, setMembers] = useState<Member[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -160,7 +165,7 @@ export default function App() {
   const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   useEffect(() => {
-    if (!authenticated) return;
+    if (!authMode) return;
 
     async function loadMembers() {
       setLoading(true);
@@ -202,7 +207,7 @@ export default function App() {
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [authenticated]);
+  }, [authMode]);
 
   useEffect(() => {
     localStorage.setItem('samd-power-ranges', JSON.stringify(powerRanges));
@@ -342,21 +347,27 @@ export default function App() {
 
   function logout() {
     localStorage.removeItem('samd-authenticated');
-    setAuthenticated(false);
+    localStorage.removeItem('samd-auth-mode');
+    setAuthMode(null);
   }
 
-  if (!authenticated) {
-    return <Login onLogin={() => setAuthenticated(true)} />;
+  if (!authMode) {
+    return <Login onLogin={(mode) => setAuthMode(mode)} />;
   }
+
+  const isViewer = authMode === 'viewer';
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100">
-      <div className="fixed inset-0 -z-10 bg-[linear-gradient(120deg,rgba(8,47,73,0.22),transparent_28%),radial-gradient(circle_at_80%_0%,rgba(225,29,72,0.13),transparent_24%),linear-gradient(180deg,#020617,#0f172a_52%,#020617)]" />
-      <div className="fixed inset-0 -z-10 opacity-[0.05] [background-image:linear-gradient(rgba(255,255,255,.75)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.75)_1px,transparent_1px)] [background-size:36px_36px]" />
+      <div className="fixed inset-0 -z-10 bg-[radial-gradient(circle_at_8%_12%,rgba(34,211,238,0.2),transparent_28%),radial-gradient(circle_at_86%_10%,rgba(220,38,38,0.18),transparent_25%),radial-gradient(circle_at_55%_100%,rgba(16,185,129,0.12),transparent_26%),linear-gradient(180deg,#020617,#111827_48%,#020617)]" />
+      <div className="fixed inset-0 -z-10 opacity-[0.06] [background-image:linear-gradient(rgba(255,255,255,.75)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.75)_1px,transparent_1px)] [background-size:32px_32px]" />
 
       <div ref={dashboardRef} className="mx-auto max-w-[1800px] px-4 py-5 sm:px-6 lg:px-8" dir="rtl">
-        <header className="mb-5 flex flex-col gap-4 border-b border-slate-800 pb-5 lg:flex-row lg:items-center lg:justify-between">
+        <header className="mb-5 flex flex-col gap-4 rounded-lg border border-slate-800 bg-slate-900/66 p-5 shadow-[0_24px_80px_rgba(0,0,0,0.24)] backdrop-blur lg:flex-row lg:items-center lg:justify-between">
           <div>
+            <div className="mb-4">
+              <BrandMark compact />
+            </div>
             <p className="flex items-center gap-2 text-xs uppercase tracking-[0.32em] text-cyan-300" dir="ltr">
               <Radio size={15} /> Strategic Alliance Command
             </p>
@@ -367,13 +378,17 @@ export default function App() {
           </div>
 
           <div className="flex flex-wrap gap-2">
-            <button className="command-btn bg-cyan-300 text-slate-950 hover:bg-cyan-200" onClick={() => openCreate()}>
-              <Plus size={17} /> عضو جديد في الانتظار | Add to Pool
-            </button>
-            <button className="command-btn border border-emerald-300/50 bg-emerald-300/10 text-emerald-100 hover:bg-emerald-300/20" onClick={autoBalance} disabled={balancing || members.length === 0}>
-              {balancing ? <Loader2 className="animate-spin" size={17} /> : <RefreshCw size={17} />}
-              توزيع تلقائي | Auto-Balance
-            </button>
+            {!isViewer && (
+              <>
+                <button className="command-btn bg-cyan-300 text-slate-950 hover:bg-cyan-200" onClick={() => openCreate()}>
+                  <Plus size={17} /> عضو جديد في الانتظار | Add to Pool
+                </button>
+                <button className="command-btn border border-emerald-300/50 bg-emerald-300/10 text-emerald-100 hover:bg-emerald-300/20" onClick={autoBalance} disabled={balancing || members.length === 0}>
+                  {balancing ? <Loader2 className="animate-spin" size={17} /> : <RefreshCw size={17} />}
+                  توزيع تلقائي | Auto-Balance
+                </button>
+              </>
+            )}
             <button className="command-btn border border-slate-600 bg-slate-900 text-slate-200 hover:border-cyan-300/60" onClick={() => exportNode(dashboardRef.current, 'alliance-dashboard.png')}>
               <Download size={17} /> snapshot
             </button>
@@ -392,14 +407,16 @@ export default function App() {
           </div>
         )}
 
-        <section className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <Stat icon={<Activity />} label="قوة التحالف | Total Power" value={formatPower(stats.totalPower)} />
-          <Stat icon={<Shield />} label="أقوى مجموعة | Strongest" value={`${stats.strongest.ar} · ${formatPower(stats.strongest.power)}`} />
-          <Stat icon={<Users />} label="عدد الأعضاء | Members" value={formatPower(stats.memberCount)} />
-          <Stat icon={<BarChart3 />} label="متوسط القوة | Average" value={formatPower(stats.averagePower)} />
-        </section>
+        {!isViewer && (
+          <section className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <Stat icon={<Activity />} label="قوة التحالف | Total Power" value={formatPower(stats.totalPower)} />
+            <Stat icon={<Shield />} label="أقوى مجموعة | Strongest" value={`${stats.strongest.ar} · ${formatPower(stats.strongest.power)}`} />
+            <Stat icon={<Users />} label="عدد الأعضاء | Members" value={formatPower(stats.memberCount)} />
+            <Stat icon={<BarChart3 />} label="متوسط القوة | Average" value={formatPower(stats.averagePower)} />
+          </section>
+        )}
 
-        <section className="mb-5 border border-slate-800 bg-slate-900/70 p-4">
+        {!isViewer && <section className="mb-5 rounded-lg border border-slate-800 bg-slate-900/70 p-4">
           <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 className="flex items-center gap-2 text-lg font-black text-slate-50">
@@ -444,7 +461,7 @@ export default function App() {
               </div>
             ))}
           </div>
-        </section>
+        </section>}
 
         {loading ? (
           <div className="grid min-h-[45vh] place-items-center text-cyan-200">
@@ -452,7 +469,7 @@ export default function App() {
           </div>
         ) : (
           <>
-          <section className="mb-4">
+          {!isViewer && <section className="mb-4">
             <GroupColumn
               group={unassignedGroup}
               members={members
@@ -468,8 +485,9 @@ export default function App() {
                 groupRefs.current[0] = node;
               }}
               cardRefs={cardRefs}
+              readOnly={isViewer}
             />
-          </section>
+          </section>}
           <section className="grid gap-4 xl:grid-cols-4">
             {groups.map((group) => (
               <GroupColumn
@@ -486,6 +504,7 @@ export default function App() {
                   groupRefs.current[group.id] = node;
                 }}
                 cardRefs={cardRefs}
+                readOnly={isViewer}
               />
             ))}
           </section>
@@ -561,6 +580,7 @@ function GroupColumn({
   onExport,
   groupRef,
   cardRefs,
+  readOnly,
 }: {
   group: (typeof groups)[number] | typeof unassignedGroup;
   members: Member[];
@@ -572,13 +592,14 @@ function GroupColumn({
   onExport: () => void;
   groupRef: (node: HTMLDivElement | null) => void;
   cardRefs: MutableRefObject<Record<string, HTMLDivElement | null>>;
+  readOnly: boolean;
 }) {
   const leaders = members.filter((member) => member.role !== 'Member');
   const roster = members.filter((member) => member.role === 'Member');
 
   return (
-    <article ref={groupRef} className={`min-h-[620px] border ${group.border} ${group.shadow} bg-slate-950/82 p-3`}>
-      <div className={`mb-3 border ${group.border} ${group.bg} p-3`}>
+    <article ref={groupRef} className={`min-h-[620px] rounded-lg border ${group.border} ${group.shadow} bg-slate-950/82 p-3`}>
+      <div className={`mb-3 rounded-lg border ${group.border} ${group.bg} p-3`}>
         <div className="flex items-start justify-between gap-3">
           <div>
             <h2 className={`text-xl font-black ${group.accent}`}>{group.ar}</h2>
@@ -587,22 +608,24 @@ function GroupColumn({
             </p>
           </div>
           <div className="flex gap-1">
-            <button className="icon-btn" onClick={onCreate} title="إضافة عضو | Add member">
-              <Plus size={16} />
-            </button>
+            {!readOnly && (
+              <button className="icon-btn" onClick={onCreate} title="إضافة عضو | Add member">
+                <Plus size={16} />
+              </button>
+            )}
             <button className="icon-btn" onClick={onExport} title="تصدير المجموعة | Export group">
               <Download size={16} />
             </button>
           </div>
         </div>
         <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-          <div className="border border-slate-700 bg-slate-950/55 p-2">
+          <div className="rounded-lg border border-slate-700 bg-slate-950/55 p-2">
             <p className="text-slate-500">القوة | Power</p>
             <p className="font-bold text-slate-100" dir="ltr">
               {formatPower(power)}
             </p>
           </div>
-          <div className="border border-slate-700 bg-slate-950/55 p-2">
+          <div className="rounded-lg border border-slate-700 bg-slate-950/55 p-2">
             <p className="text-slate-500">الأعضاء | Units</p>
             <p className="font-bold text-slate-100" dir="ltr">
               {members.length}
@@ -621,6 +644,7 @@ function GroupColumn({
             onDelete={onDelete}
             onQuickUpdate={onQuickUpdate}
             onExport={() => exportNode(cardRefs.current[member.id], `${member.name}-card.png`)}
+            readOnly={readOnly}
             cardRef={(node) => {
               cardRefs.current[member.id] = node;
             }}
@@ -640,6 +664,7 @@ function GroupColumn({
                 onDelete={onDelete}
                 onQuickUpdate={onQuickUpdate}
                 onExport={() => exportNode(cardRefs.current[member.id], `${member.name}-card.png`)}
+                readOnly={readOnly}
                 cardRef={(node) => {
                   cardRefs.current[member.id] = node;
                 }}
@@ -665,6 +690,7 @@ function MemberCard({
   onQuickUpdate,
   onExport,
   cardRef,
+  readOnly,
 }: {
   member: Member;
   elevated?: boolean;
@@ -673,16 +699,17 @@ function MemberCard({
   onQuickUpdate: (member: Member, update: MemberUpdate) => void;
   onExport: () => void;
   cardRef: (node: HTMLDivElement | null) => void;
+  readOnly: boolean;
 }) {
   const isLeader = member.role === 'Leader';
 
   return (
-    <div ref={cardRef} className={`border bg-slate-900/88 p-3 ${elevated ? 'border-cyan-300/60 shadow-cyanGlow' : 'border-slate-800'}`}>
+    <div ref={cardRef} className={`rounded-lg border bg-slate-900/88 p-3 ${elevated ? 'border-cyan-300/60 shadow-cyanGlow' : 'border-slate-800'}`}>
       <div className="mb-3 flex items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <h3 className={`${elevated ? 'text-lg' : 'text-base'} truncate font-black text-slate-50`}>{member.name}</h3>
-            <span className={`inline-flex items-center gap-1 border px-2 py-1 text-[11px] ${isLeader ? 'border-amber-300/60 bg-amber-300/10 text-amber-200' : elevated ? 'border-cyan-300/60 bg-cyan-300/10 text-cyan-200' : 'border-slate-700 text-slate-300'}`}>
+            <span className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] ${isLeader ? 'border-amber-300/60 bg-amber-300/10 text-amber-200' : elevated ? 'border-cyan-300/60 bg-cyan-300/10 text-cyan-200' : 'border-slate-700 text-slate-300'}`}>
               {isLeader ? <Crown size={12} /> : elevated ? <Medal size={12} /> : <Shield size={12} />}
               {roleLabels[member.role]}
             </span>
@@ -696,7 +723,7 @@ function MemberCard({
         </button>
       </div>
 
-      <div className="mb-3 border border-slate-800 bg-slate-950/60 p-2">
+      <div className="mb-3 rounded-lg border border-slate-800 bg-slate-950/60 p-2">
         <p className="text-xs text-slate-500">القوة الكلية | Total Power</p>
         <p className="text-xl font-black text-cyan-100" dir="ltr">
           {formatPower(member.total_power)}
@@ -705,7 +732,7 @@ function MemberCard({
 
       <div className="mb-3 grid grid-cols-2 gap-2 text-xs">
         {[member.legion_1, member.legion_2, member.legion_3, member.legion_4].map((value, index) => (
-          <div key={index} className="border border-slate-800 bg-slate-950/50 p-2">
+          <div key={index} className="rounded-lg border border-slate-800 bg-slate-950/50 p-2">
             <p className="text-slate-500">L{index + 1}</p>
             <p className="font-bold text-slate-200" dir="ltr">
               {formatPower(value)}
@@ -714,7 +741,7 @@ function MemberCard({
         ))}
       </div>
 
-      <div className="grid gap-2">
+      {!readOnly && <div className="grid gap-2">
         <div className="grid grid-cols-2 gap-2">
           <select className="mini-select" value={member.role} onChange={(event) => onQuickUpdate(member, { role: event.target.value as MemberRole })}>
             {(Object.keys(roleLabels) as MemberRole[]).map((role) => (
@@ -740,7 +767,7 @@ function MemberCard({
             <Trash2 size={14} /> حذف
           </button>
         </div>
-      </div>
+      </div>}
     </div>
   );
 }
