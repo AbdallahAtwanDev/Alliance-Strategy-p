@@ -6,6 +6,7 @@ import {
   Crown,
   Download,
   Edit3,
+  FileSpreadsheet,
   Loader2,
   LogOut,
   Medal,
@@ -170,6 +171,59 @@ async function exportNode(node: HTMLElement | null, fileName: string) {
   link.download = fileName;
   link.href = dataUrl;
   link.click();
+}
+
+function excelRowsForGroup(groupName: string, members: Member[]) {
+  const leader = members.find((member) => member.role === 'Leader');
+  const deputy = members.find((member) => member.role === 'Deputy');
+  const regularMembers = members.filter((member) => member.role === 'Member');
+  const header = ['الاسم | Name', 'القوة الإجمالية | Total Power', 'الفيلق الأول | Legion 1', 'الفيلق الثاني | Legion 2', 'الفيلق الثالث | Legion 3'];
+  const memberRow = (member: Member) => [member.name, member.total_power, member.legion_1, member.legion_2, member.legion_3];
+
+  return [
+    [groupName],
+    [],
+    ['القائد | Leader'],
+    header,
+    ...(leader ? [memberRow(leader)] : [['لا يوجد قائد | No leader', '', '', '', '']]),
+    [],
+    ['النائب | Deputy'],
+    header,
+    ...(deputy ? [memberRow(deputy)] : [['لا يوجد نائب | No deputy', '', '', '', '']]),
+    [],
+    ['الأعضاء | Members'],
+    header,
+    ...regularMembers.map(memberRow),
+  ];
+}
+
+async function buildGroupWorksheet(groupName: string, members: Member[]) {
+  const XLSX = await import('xlsx');
+  const sheet = XLSX.utils.aoa_to_sheet(excelRowsForGroup(groupName, members));
+  sheet['!cols'] = [{ wch: 28 }, { wch: 24 }, { wch: 22 }, { wch: 22 }, { wch: 22 }];
+  return sheet;
+}
+
+async function exportGroupExcel(groupName: string, members: Member[], fileName: string) {
+  const XLSX = await import('xlsx');
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, await buildGroupWorksheet(groupName, members), 'Group');
+  XLSX.writeFile(workbook, fileName);
+}
+
+async function exportAllianceExcel(groupedMembers: Record<GroupId, Member[]>) {
+  const XLSX = await import('xlsx');
+  const workbook = XLSX.utils.book_new();
+
+  for (const group of groups) {
+    XLSX.utils.book_append_sheet(
+      workbook,
+      await buildGroupWorksheet(`${group.ar} | ${group.en}`, groupedMembers[group.id]),
+      `Group ${group.id}`,
+    );
+  }
+
+  XLSX.writeFile(workbook, 'alliance-groups.xlsx');
 }
 
 export default function App() {
@@ -419,6 +473,9 @@ export default function App() {
             <button className="command-btn border border-slate-600 bg-slate-900 text-slate-200 hover:border-cyan-300/60" onClick={() => exportNode(dashboardRef.current, 'alliance-dashboard.png')}>
               <Download size={17} /> snapshot
             </button>
+            <button className="command-btn border border-emerald-300/50 bg-emerald-300/10 text-emerald-100 hover:bg-emerald-300/20" onClick={() => exportAllianceExcel(groupedMembers)}>
+              <Download size={17} /> Excel
+            </button>
             <button className="icon-btn" onClick={logout} title="خروج | Logout">
               <LogOut size={18} />
             </button>
@@ -508,6 +565,7 @@ export default function App() {
               onDelete={deleteMember}
               onQuickUpdate={quickUpdate}
               onExport={() => exportNode(groupRefs.current[0], 'unassigned-pool.png')}
+              onExcelExport={() => exportGroupExcel(`${unassignedGroup.ar} | ${unassignedGroup.en}`, members.filter((member) => member.group_id === 0), 'unassigned-pool.xlsx')}
               groupRef={(node) => {
                 groupRefs.current[0] = node;
               }}
@@ -527,6 +585,7 @@ export default function App() {
                 onDelete={deleteMember}
                 onQuickUpdate={quickUpdate}
                 onExport={() => exportNode(groupRefs.current[group.id], `group-${group.id}.png`)}
+                onExcelExport={() => exportGroupExcel(`${group.ar} | ${group.en}`, groupedMembers[group.id], `group-${group.id}.xlsx`)}
                 groupRef={(node) => {
                   groupRefs.current[group.id] = node;
                 }}
@@ -605,6 +664,7 @@ function GroupColumn({
   onDelete,
   onQuickUpdate,
   onExport,
+  onExcelExport,
   groupRef,
   cardRefs,
   readOnly,
@@ -617,6 +677,7 @@ function GroupColumn({
   onDelete: (member: Member) => void;
   onQuickUpdate: (member: Member, update: MemberUpdate) => void;
   onExport: () => void;
+  onExcelExport: () => void;
   groupRef: (node: HTMLDivElement | null) => void;
   cardRefs: MutableRefObject<Record<string, HTMLDivElement | null>>;
   readOnly: boolean;
@@ -642,6 +703,9 @@ function GroupColumn({
             )}
             <button className="icon-btn" onClick={onExport} title="تصدير المجموعة | Export group">
               <Download size={16} />
+            </button>
+            <button className="icon-btn" onClick={onExcelExport} title="تحميل Excel للمجموعة | Export group Excel">
+              <FileSpreadsheet size={16} />
             </button>
           </div>
         </div>
