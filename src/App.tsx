@@ -14,6 +14,7 @@ import {
   RefreshCw,
   Save,
   Shield,
+  SlidersHorizontal,
   Trash2,
   Users,
   X,
@@ -24,6 +25,7 @@ import type { Member, MemberInsert, MemberRole, MemberUpdate } from './types/dat
 
 type GroupId = 1 | 2 | 3 | 4;
 type AssignmentId = 0 | GroupId;
+type GroupPowerRanges = Record<GroupId, { min: string; max: string }>;
 type MemberForm = {
   name: string;
   total_power: string;
@@ -71,6 +73,13 @@ const unassignedGroup = {
   bg: 'bg-violet-300/10',
 };
 
+const defaultGroupPowerRanges: GroupPowerRanges = {
+  1: { min: '0', max: '50000000' },
+  2: { min: '50000001', max: '100000000' },
+  3: { min: '100000001', max: '200000000' },
+  4: { min: '200000001', max: '999999999999' },
+};
+
 const roleLabels: Record<MemberRole, string> = {
   Leader: 'القائد | Leader',
   Deputy: 'النائب | Deputy',
@@ -112,6 +121,16 @@ function payloadFromForm(form: MemberForm): MemberInsert {
   };
 }
 
+function loadPowerRanges(): GroupPowerRanges {
+  try {
+    const saved = localStorage.getItem('samd-power-ranges');
+    if (!saved) return defaultGroupPowerRanges;
+    return { ...defaultGroupPowerRanges, ...JSON.parse(saved) } as GroupPowerRanges;
+  } catch {
+    return defaultGroupPowerRanges;
+  }
+}
+
 async function exportNode(node: HTMLElement | null, fileName: string) {
   if (!node) return;
   const dataUrl = await toPng(node, {
@@ -135,6 +154,7 @@ export default function App() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Member | null>(null);
   const [form, setForm] = useState<MemberForm>(emptyForm);
+  const [powerRanges, setPowerRanges] = useState<GroupPowerRanges>(loadPowerRanges);
   const dashboardRef = useRef<HTMLDivElement>(null);
   const groupRefs = useRef<Record<number, HTMLDivElement | null>>({});
   const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -183,6 +203,10 @@ export default function App() {
       void supabase.removeChannel(channel);
     };
   }, [authenticated]);
+
+  useEffect(() => {
+    localStorage.setItem('samd-power-ranges', JSON.stringify(powerRanges));
+  }, [powerRanges]);
 
   const groupedMembers = useMemo(() => {
     return groups.reduce<Record<GroupId, Member[]>>(
@@ -272,17 +296,36 @@ export default function App() {
     if (updateError) setError(updateError.message);
   }
 
+  function updatePowerRange(groupId: GroupId, key: 'min' | 'max', value: string) {
+    setPowerRanges((current) => ({
+      ...current,
+      [groupId]: {
+        ...current[groupId],
+        [key]: value,
+      },
+    }));
+  }
+
   async function autoBalance() {
     setBalancing(true);
     setError('');
 
     const totals: Record<GroupId, number> = { 1: 0, 2: 0, 3: 0, 4: 0 };
-    const updates: Array<{ member: Member; group_id: GroupId }> = [];
+    const updates: Array<{ member: Member; group_id: AssignmentId }> = [];
     const sorted = [...members].sort((a, b) => b.total_power - a.total_power);
 
     for (const member of sorted) {
-      const target = groups.reduce((lowest, group) => (totals[group.id] < totals[lowest] ? group.id : lowest), 1 as GroupId);
-      totals[target] += member.total_power;
+      const matchingGroups = groups.filter((group) => {
+        const min = numberValue(powerRanges[group.id].min);
+        const max = numberValue(powerRanges[group.id].max);
+        return member.total_power >= min && member.total_power <= max;
+      });
+      const target =
+        matchingGroups.length > 0
+          ? matchingGroups.reduce((lowest, group) => (totals[group.id] < totals[lowest] ? group.id : lowest), matchingGroups[0].id)
+          : 0;
+
+      if (target !== 0) totals[target] += member.total_power;
       if (member.group_id !== target) updates.push({ member, group_id: target });
     }
 
@@ -354,6 +397,53 @@ export default function App() {
           <Stat icon={<Shield />} label="أقوى مجموعة | Strongest" value={`${stats.strongest.ar} · ${formatPower(stats.strongest.power)}`} />
           <Stat icon={<Users />} label="عدد الأعضاء | Members" value={formatPower(stats.memberCount)} />
           <Stat icon={<BarChart3 />} label="متوسط القوة | Average" value={formatPower(stats.averagePower)} />
+        </section>
+
+        <section className="mb-5 border border-slate-800 bg-slate-900/70 p-4">
+          <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="flex items-center gap-2 text-lg font-black text-slate-50">
+                <SlidersHorizontal size={18} className="text-cyan-200" />
+                قواعد التوزيع التلقائي | Auto Power Rules
+              </h2>
+              <p className="mt-1 text-sm text-slate-400">
+                حدد مدى القوة لكل مجموعة. أي عضو خارج كل المديات سيبقى في قائمة الانتظار.
+              </p>
+            </div>
+            <button className="small-btn" onClick={() => setPowerRanges(defaultGroupPowerRanges)}>
+              Reset
+            </button>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            {groups.map((group) => (
+              <div key={group.id} className={`border ${group.border} ${group.bg} p-3`}>
+                <p className={`mb-3 font-black ${group.accent}`}>
+                  {group.ar} | {group.en}
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="block">
+                    <span className="mb-1 block text-xs text-slate-400">من | Min</span>
+                    <input
+                      className="field py-2"
+                      inputMode="numeric"
+                      value={powerRanges[group.id].min}
+                      onChange={(event) => updatePowerRange(group.id, 'min', event.target.value)}
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="mb-1 block text-xs text-slate-400">إلى | Max</span>
+                    <input
+                      className="field py-2"
+                      inputMode="numeric"
+                      value={powerRanges[group.id].max}
+                      onChange={(event) => updatePowerRange(group.id, 'max', event.target.value)}
+                    />
+                  </label>
+                </div>
+              </div>
+            ))}
+          </div>
         </section>
 
         {loading ? (
