@@ -8,7 +8,7 @@ export type Member = {
   legion_2: number;
   legion_3: number;
   legion_4: number;
-  group_id: 1 | 2 | 3 | 4;
+  group_id: 0 | 1 | 2 | 3 | 4;
   role: MemberRole;
   created_at: string;
 };

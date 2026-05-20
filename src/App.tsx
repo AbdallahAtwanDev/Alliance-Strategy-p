@@ -23,6 +23,7 @@ import { Login } from './components/Login';
 import type { Member, MemberInsert, MemberRole, MemberUpdate } from './types/database';
 
 type GroupId = 1 | 2 | 3 | 4;
+type AssignmentId = 0 | GroupId;
 type MemberForm = {
   name: string;
   total_power: string;
@@ -30,7 +31,7 @@ type MemberForm = {
   legion_2: string;
   legion_3: string;
   legion_4: string;
-  group_id: GroupId;
+  group_id: AssignmentId;
   role: MemberRole;
 };
 
@@ -41,7 +42,7 @@ const emptyForm: MemberForm = {
   legion_2: '',
   legion_3: '',
   legion_4: '',
-  group_id: 1,
+  group_id: 0,
   role: 'Member',
 };
 
@@ -59,6 +60,16 @@ const groups: Array<{
   { id: 3, ar: 'المجموعة الثالثة', en: 'Group 3', accent: 'text-amber-200', border: 'border-amber-300/60', shadow: 'shadow-amberGlow', bg: 'bg-amber-300/10' },
   { id: 4, ar: 'المجموعة الرابعة', en: 'Group 4', accent: 'text-rose-200', border: 'border-rose-300/60', shadow: 'shadow-roseGlow', bg: 'bg-rose-300/10' },
 ];
+
+const unassignedGroup = {
+  id: 0 as const,
+  ar: 'قائمة الانتظار',
+  en: 'Unassigned Pool',
+  accent: 'text-violet-200',
+  border: 'border-violet-300/60',
+  shadow: 'shadow-[0_0_22px_rgba(196,181,253,0.22)]',
+  bg: 'bg-violet-300/10',
+};
 
 const roleLabels: Record<MemberRole, string> = {
   Leader: 'القائد | Leader',
@@ -205,7 +216,7 @@ export default function App() {
     };
   }, [groupedMembers, members]);
 
-  function openCreate(groupId: GroupId = 1) {
+  function openCreate(groupId: AssignmentId = 0) {
     setEditing(null);
     setForm({ ...emptyForm, group_id: groupId });
     setModalOpen(true);
@@ -221,7 +232,7 @@ export default function App() {
     const { name, value } = event.target;
     setForm((current) => ({
       ...current,
-      [name]: name === 'group_id' ? (Number(value) as GroupId) : value,
+      [name]: name === 'group_id' ? (Number(value) as AssignmentId) : value,
     }));
   }
 
@@ -314,7 +325,7 @@ export default function App() {
 
           <div className="flex flex-wrap gap-2">
             <button className="command-btn bg-cyan-300 text-slate-950 hover:bg-cyan-200" onClick={() => openCreate()}>
-              <Plus size={17} /> عضو جديد | Add
+              <Plus size={17} /> عضو جديد في الانتظار | Add to Pool
             </button>
             <button className="command-btn border border-emerald-300/50 bg-emerald-300/10 text-emerald-100 hover:bg-emerald-300/20" onClick={autoBalance} disabled={balancing || members.length === 0}>
               {balancing ? <Loader2 className="animate-spin" size={17} /> : <RefreshCw size={17} />}
@@ -350,6 +361,25 @@ export default function App() {
             <Loader2 className="animate-spin" size={38} />
           </div>
         ) : (
+          <>
+          <section className="mb-4">
+            <GroupColumn
+              group={unassignedGroup}
+              members={members
+                .filter((member) => member.group_id === 0)
+                .sort((a, b) => b.total_power - a.total_power || a.name.localeCompare(b.name))}
+              power={members.filter((member) => member.group_id === 0).reduce((sum, member) => sum + member.total_power, 0)}
+              onCreate={() => openCreate(0)}
+              onEdit={openEdit}
+              onDelete={deleteMember}
+              onQuickUpdate={quickUpdate}
+              onExport={() => exportNode(groupRefs.current[0], 'unassigned-pool.png')}
+              groupRef={(node) => {
+                groupRefs.current[0] = node;
+              }}
+              cardRefs={cardRefs}
+            />
+          </section>
           <section className="grid gap-4 xl:grid-cols-4">
             {groups.map((group) => (
               <GroupColumn
@@ -357,7 +387,7 @@ export default function App() {
                 group={group}
                 members={groupedMembers[group.id]}
                 power={stats.groupPowers.find((item) => item.id === group.id)?.power ?? 0}
-                onCreate={() => openCreate(group.id)}
+                onCreate={() => openCreate(0)}
                 onEdit={openEdit}
                 onDelete={deleteMember}
                 onQuickUpdate={quickUpdate}
@@ -369,6 +399,7 @@ export default function App() {
               />
             ))}
           </section>
+          </>
         )}
       </div>
 
@@ -392,7 +423,7 @@ export default function App() {
               <Field label="الفيلق 2 | Legion 2" name="legion_2" value={form.legion_2} onChange={updateForm} inputMode="numeric" />
               <Field label="الفيلق 3 | Legion 3" name="legion_3" value={form.legion_3} onChange={updateForm} inputMode="numeric" />
               <Field label="الفيلق 4 | Legion 4" name="legion_4" value={form.legion_4} onChange={updateForm} inputMode="numeric" />
-              <Select label="المجموعة | Group" name="group_id" value={String(form.group_id)} onChange={updateForm} options={groups.map((group) => ({ value: String(group.id), label: `${group.ar} | ${group.en}` }))} />
+              <Select label="المجموعة | Group" name="group_id" value={String(form.group_id)} onChange={updateForm} options={[unassignedGroup, ...groups].map((group) => ({ value: String(group.id), label: `${group.ar} | ${group.en}` }))} />
               <Select label="الدور | Role" name="role" value={form.role} onChange={updateForm} options={(Object.keys(roleLabels) as MemberRole[]).map((role) => ({ value: role, label: roleLabels[role] }))} />
             </div>
 
@@ -441,7 +472,7 @@ function GroupColumn({
   groupRef,
   cardRefs,
 }: {
-  group: (typeof groups)[number];
+  group: (typeof groups)[number] | typeof unassignedGroup;
   members: Member[];
   power: number;
   onCreate: () => void;
@@ -602,8 +633,8 @@ function MemberCard({
               </option>
             ))}
           </select>
-          <select className="mini-select" value={member.group_id} onChange={(event) => onQuickUpdate(member, { group_id: Number(event.target.value) as GroupId })}>
-            {groups.map((group) => (
+          <select className="mini-select" value={member.group_id} onChange={(event) => onQuickUpdate(member, { group_id: Number(event.target.value) as AssignmentId })}>
+            {[unassignedGroup, ...groups].map((group) => (
               <option key={group.id} value={group.id}>
                 {group.en}
               </option>

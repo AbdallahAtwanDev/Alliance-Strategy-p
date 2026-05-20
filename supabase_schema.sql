@@ -8,12 +8,16 @@ create table if not exists public.members (
   legion_2 bigint default 0,
   legion_3 bigint default 0,
   legion_4 bigint default 0,
-  group_id int default 1 check (group_id between 1 and 4),
+  group_id int default 0 check (group_id between 0 and 4),
   role text default 'Member' check (role in ('Leader', 'Deputy', 'Member')),
   created_at timestamp with time zone default now()
 );
 
 alter table public.members enable row level security;
+
+alter table public.members alter column group_id set default 0;
+alter table public.members drop constraint if exists members_group_id_check;
+alter table public.members add constraint members_group_id_check check (group_id between 0 and 4);
 
 drop policy if exists "Allow anon read members" on public.members;
 create policy "Allow anon read members"
