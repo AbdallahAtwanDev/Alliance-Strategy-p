@@ -5,8 +5,8 @@ type LoginProps = {
   onLogin: () => void;
 };
 
-const ADMIN_USERNAME = import.meta.env.VITE_ADMIN_USERNAME as string;
-const ADMIN_PASSWORD = import.meta.env.VITE_ADMIN_PASSWORD as string;
+const ADMIN_USERNAME = import.meta.env.VITE_ADMIN_USERNAME || 'admin';
+const ADMIN_PASSWORD = import.meta.env.VITE_ADMIN_PASSWORD || '19200519200@@';
 
 export function Login({ onLogin }: LoginProps) {
   const [username, setUsername] = useState('');
