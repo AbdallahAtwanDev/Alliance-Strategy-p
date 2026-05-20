@@ -177,53 +177,132 @@ function excelRowsForGroup(groupName: string, members: Member[]) {
   const leader = members.find((member) => member.role === 'Leader');
   const deputy = members.find((member) => member.role === 'Deputy');
   const regularMembers = members.filter((member) => member.role === 'Member');
-  const header = ['الاسم | Name', 'القوة الإجمالية | Total Power', 'الفيلق الأول | Legion 1', 'الفيلق الثاني | Legion 2', 'الفيلق الثالث | Legion 3'];
-  const memberRow = (member: Member) => [member.name, member.total_power, member.legion_1, member.legion_2, member.legion_3];
+  const header = ['الاسم', 'القوة الإجمالية', 'الفيلق الأول', 'الفيلق الثاني', 'الفيلق الثالث'];
+  const memberRow = (member: Member) => [
+    member.name,
+    formatPower(member.total_power),
+    formatPower(member.legion_1),
+    formatPower(member.legion_2),
+    formatPower(member.legion_3),
+  ];
 
   return [
+    ['abdallah atwan GOV'],
     [groupName],
     [],
-    ['القائد | Leader'],
+    ['القائد'],
     header,
-    ...(leader ? [memberRow(leader)] : [['لا يوجد قائد | No leader', '', '', '', '']]),
+    ...(leader ? [memberRow(leader)] : [['لا يوجد قائد', '', '', '', '']]),
     [],
-    ['النائب | Deputy'],
+    ['النائب'],
     header,
-    ...(deputy ? [memberRow(deputy)] : [['لا يوجد نائب | No deputy', '', '', '', '']]),
+    ...(deputy ? [memberRow(deputy)] : [['لا يوجد نائب', '', '', '', '']]),
     [],
-    ['الأعضاء | Members'],
+    ['الأعضاء'],
     header,
     ...regularMembers.map(memberRow),
   ];
 }
 
 async function buildGroupWorksheet(groupName: string, members: Member[]) {
-  const XLSX = await import('xlsx');
-  const sheet = XLSX.utils.aoa_to_sheet(excelRowsForGroup(groupName, members));
-  sheet['!cols'] = [{ wch: 28 }, { wch: 24 }, { wch: 22 }, { wch: 22 }, { wch: 22 }];
-  return sheet;
+  const ExcelJS = await import('exceljs');
+  const workbook = new ExcelJS.Workbook();
+  const worksheet = workbook.addWorksheet('المجموعة', {
+    views: [{ rightToLeft: true, showGridLines: false }],
+  });
+
+  worksheet.columns = [
+    { width: 30 },
+    { width: 20 },
+    { width: 18 },
+    { width: 18 },
+    { width: 18 },
+  ];
+
+  excelRowsForGroup(groupName, members).forEach((row) => worksheet.addRow(row));
+
+  worksheet.mergeCells('A1:E1');
+  worksheet.mergeCells('A2:E2');
+
+  const border = { style: 'thin' as const, color: { argb: 'FFCBD5E1' } };
+  const fills = {
+    brand: { type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb: 'FFDC2626' } },
+    title: { type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb: 'FF0F172A' } },
+    section: { type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb: 'FF0E7490' } },
+    header: { type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb: 'FFE0F2FE' } },
+    soft: { type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb: 'FFF8FAFC' } },
+  };
+
+  worksheet.eachRow((row, rowNumber) => {
+    row.height = rowNumber <= 2 ? 28 : 22;
+    row.eachCell((cell) => {
+      cell.alignment = { horizontal: 'center', vertical: 'middle', readingOrder: 'rtl' };
+      cell.border = { top: border, left: border, bottom: border, right: border };
+      cell.font = { name: 'Arial', size: 11, color: { argb: 'FF0F172A' } };
+      cell.fill = fills.soft;
+    });
+  });
+
+  worksheet.getCell('A1').fill = fills.brand;
+  worksheet.getCell('A1').font = { name: 'Arial', size: 18, bold: true, color: { argb: 'FFFFFFFF' } };
+  worksheet.getCell('A2').fill = fills.title;
+  worksheet.getCell('A2').font = { name: 'Arial', size: 16, bold: true, color: { argb: 'FFFFFFFF' } };
+
+  [4, 8, 12].forEach((rowNumber) => {
+    worksheet.mergeCells(`A${rowNumber}:E${rowNumber}`);
+    const cell = worksheet.getCell(`A${rowNumber}`);
+    cell.fill = fills.section;
+    cell.font = { name: 'Arial', size: 13, bold: true, color: { argb: 'FFFFFFFF' } };
+  });
+
+  [5, 9, 13].forEach((rowNumber) => {
+    worksheet.getRow(rowNumber).eachCell((cell) => {
+      cell.fill = fills.header;
+      cell.font = { name: 'Arial', size: 12, bold: true, color: { argb: 'FF0F172A' } };
+    });
+  });
+
+  worksheet.autoFilter = { from: 'A13', to: 'E13' };
+  worksheet.views = [{ rightToLeft: true, showGridLines: false, state: 'frozen', ySplit: 2 }];
+
+  return workbook;
 }
 
 async function exportGroupExcel(groupName: string, members: Member[], fileName: string) {
-  const XLSX = await import('xlsx');
-  const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, await buildGroupWorksheet(groupName, members), 'Group');
-  XLSX.writeFile(workbook, fileName);
+  const workbook = await buildGroupWorksheet(groupName, members);
+  const buffer = await workbook.xlsx.writeBuffer();
+  downloadBlob(buffer, fileName);
 }
 
 async function exportAllianceExcel(groupedMembers: Record<GroupId, Member[]>) {
-  const XLSX = await import('xlsx');
-  const workbook = XLSX.utils.book_new();
+  const ExcelJS = await import('exceljs');
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = 'abdallah atwan GOV';
 
   for (const group of groups) {
-    XLSX.utils.book_append_sheet(
-      workbook,
-      await buildGroupWorksheet(`${group.ar} | ${group.en}`, groupedMembers[group.id]),
-      `Group ${group.id}`,
-    );
+    const groupWorkbook = await buildGroupWorksheet(group.ar, groupedMembers[group.id]);
+    const source = groupWorkbook.getWorksheet('المجموعة');
+    if (!source) continue;
+    const worksheet = workbook.addWorksheet(group.ar, {
+      views: [{ rightToLeft: true, showGridLines: false, state: 'frozen', ySplit: 2 }],
+    });
+    worksheet.model = { ...source.model, id: worksheet.id, name: group.ar };
   }
 
-  XLSX.writeFile(workbook, 'alliance-groups.xlsx');
+  const buffer = await workbook.xlsx.writeBuffer();
+  downloadBlob(buffer, 'مجموعات-التحالف.xlsx');
+}
+
+function downloadBlob(data: BlobPart, fileName: string) {
+  const blob = new Blob([data], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = fileName;
+  link.click();
+  URL.revokeObjectURL(url);
 }
 
 export default function App() {
@@ -236,6 +315,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [balancing, setBalancing] = useState(false);
+  const [excelExporting, setExcelExporting] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Member | null>(null);
@@ -382,6 +462,18 @@ export default function App() {
     if (updateError) setError(updateError.message);
   }
 
+  async function runExcelExport(key: string, action: () => Promise<void>) {
+    setExcelExporting(key);
+    setError('');
+    try {
+      await action();
+    } catch (exportError) {
+      setError(exportError instanceof Error ? exportError.message : 'تعذر إنشاء ملف Excel');
+    } finally {
+      setExcelExporting(null);
+    }
+  }
+
   function updatePowerRange(groupId: GroupId, key: 'min' | 'max', value: string) {
     setPowerRanges((current) => ({
       ...current,
@@ -473,8 +565,8 @@ export default function App() {
             <button className="command-btn border border-slate-600 bg-slate-900 text-slate-200 hover:border-cyan-300/60" onClick={() => exportNode(dashboardRef.current, 'alliance-dashboard.png')}>
               <Download size={17} /> snapshot
             </button>
-            <button className="command-btn border border-emerald-300/50 bg-emerald-300/10 text-emerald-100 hover:bg-emerald-300/20" onClick={() => exportAllianceExcel(groupedMembers)}>
-              <Download size={17} /> Excel
+            <button className="command-btn border border-emerald-300/50 bg-emerald-300/10 text-emerald-100 hover:bg-emerald-300/20" onClick={() => void runExcelExport('all', () => exportAllianceExcel(groupedMembers))} disabled={excelExporting !== null}>
+              {excelExporting === 'all' ? <Loader2 className="animate-spin" size={17} /> : <FileSpreadsheet size={17} />} Excel
             </button>
             <button className="icon-btn" onClick={logout} title="خروج | Logout">
               <LogOut size={18} />
@@ -565,7 +657,8 @@ export default function App() {
               onDelete={deleteMember}
               onQuickUpdate={quickUpdate}
               onExport={() => exportNode(groupRefs.current[0], 'unassigned-pool.png')}
-              onExcelExport={() => exportGroupExcel(`${unassignedGroup.ar} | ${unassignedGroup.en}`, members.filter((member) => member.group_id === 0), 'unassigned-pool.xlsx')}
+              onExcelExport={() => runExcelExport('group-0', () => exportGroupExcel(unassignedGroup.ar, members.filter((member) => member.group_id === 0), 'قائمة-الانتظار.xlsx'))}
+              excelExporting={excelExporting === 'group-0'}
               groupRef={(node) => {
                 groupRefs.current[0] = node;
               }}
@@ -585,7 +678,8 @@ export default function App() {
                 onDelete={deleteMember}
                 onQuickUpdate={quickUpdate}
                 onExport={() => exportNode(groupRefs.current[group.id], `group-${group.id}.png`)}
-                onExcelExport={() => exportGroupExcel(`${group.ar} | ${group.en}`, groupedMembers[group.id], `group-${group.id}.xlsx`)}
+                onExcelExport={() => runExcelExport(`group-${group.id}`, () => exportGroupExcel(group.ar, groupedMembers[group.id], `${group.ar}.xlsx`))}
+                excelExporting={excelExporting === `group-${group.id}`}
                 groupRef={(node) => {
                   groupRefs.current[group.id] = node;
                 }}
@@ -665,6 +759,7 @@ function GroupColumn({
   onQuickUpdate,
   onExport,
   onExcelExport,
+  excelExporting,
   groupRef,
   cardRefs,
   readOnly,
@@ -678,6 +773,7 @@ function GroupColumn({
   onQuickUpdate: (member: Member, update: MemberUpdate) => void;
   onExport: () => void;
   onExcelExport: () => void;
+  excelExporting: boolean;
   groupRef: (node: HTMLDivElement | null) => void;
   cardRefs: MutableRefObject<Record<string, HTMLDivElement | null>>;
   readOnly: boolean;
@@ -704,8 +800,8 @@ function GroupColumn({
             <button className="icon-btn" onClick={onExport} title="تصدير المجموعة | Export group">
               <Download size={16} />
             </button>
-            <button className="icon-btn" onClick={onExcelExport} title="تحميل Excel للمجموعة | Export group Excel">
-              <FileSpreadsheet size={16} />
+            <button className="icon-btn" onClick={onExcelExport} disabled={excelExporting} title="تحميل Excel للمجموعة | Export group Excel">
+              {excelExporting ? <Loader2 className="animate-spin" size={16} /> : <FileSpreadsheet size={16} />}
             </button>
           </div>
         </div>
