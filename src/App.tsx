@@ -75,10 +75,10 @@ const unassignedGroup = {
 };
 
 const defaultGroupPowerRanges: GroupPowerRanges = {
-  1: { min: '0', max: '50000000' },
-  2: { min: '50000001', max: '100000000' },
-  3: { min: '100000001', max: '200000000' },
-  4: { min: '200000001', max: '999999999999' },
+  1: { min: '0', max: '50M' },
+  2: { min: '50M', max: '100M' },
+  3: { min: '100M', max: '200M' },
+  4: { min: '200M', max: '999B' },
 };
 
 const roleLabels: Record<MemberRole, string> = {
@@ -88,12 +88,39 @@ const roleLabels: Record<MemberRole, string> = {
 };
 
 function numberValue(value: string) {
-  const parsed = Number(value.replace(/,/g, ''));
+  const normalized = value.trim().replace(/,/g, '').replace(/\s/g, '');
+  const match = normalized.match(/^(\d+(?:\.\d+)?)([kKmMbBtTم])?$/);
+  if (!match) return 0;
+
+  const suffix = match[2]?.toLowerCase();
+  const multiplier =
+    suffix === 'k'
+      ? 1_000
+      : suffix === 'm' || suffix === 'م'
+        ? 1_000_000
+        : suffix === 'b'
+          ? 1_000_000_000
+          : suffix === 't'
+            ? 1_000_000_000_000
+            : 1;
+  const parsed = Number(match[1]) * multiplier;
   return Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed) : 0;
 }
 
 function formatPower(value: number) {
-  return new Intl.NumberFormat('en-US').format(value);
+  const abs = Math.abs(value);
+  const units = [
+    { value: 1_000_000_000_000, suffix: 'T' },
+    { value: 1_000_000_000, suffix: 'B' },
+    { value: 1_000_000, suffix: 'M' },
+    { value: 1_000, suffix: 'K' },
+  ];
+  const unit = units.find((item) => abs >= item.value);
+  if (!unit) return new Intl.NumberFormat('en-US').format(value);
+
+  const compact = value / unit.value;
+  const formatted = compact >= 100 ? compact.toFixed(0) : compact >= 10 ? compact.toFixed(1) : compact.toFixed(2);
+  return `${formatted.replace(/\.0+$|(\.\d*[1-9])0+$/, '$1')}${unit.suffix}`;
 }
 
 function formFromMember(member: Member): MemberForm {
@@ -443,7 +470,7 @@ export default function App() {
                     <span className="mb-1 block text-xs text-slate-400">من | Min</span>
                     <input
                       className="field py-2"
-                      inputMode="numeric"
+                      inputMode="decimal"
                       value={powerRanges[group.id].min}
                       onChange={(event) => updatePowerRange(group.id, 'min', event.target.value)}
                     />
@@ -452,7 +479,7 @@ export default function App() {
                     <span className="mb-1 block text-xs text-slate-400">إلى | Max</span>
                     <input
                       className="field py-2"
-                      inputMode="numeric"
+                      inputMode="decimal"
                       value={powerRanges[group.id].max}
                       onChange={(event) => updatePowerRange(group.id, 'max', event.target.value)}
                     />
@@ -527,11 +554,11 @@ export default function App() {
 
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label="الاسم | Name" name="name" value={form.name} onChange={updateForm} />
-              <Field label="القوة الكلية | Total Power" name="total_power" value={form.total_power} onChange={updateForm} inputMode="numeric" />
-              <Field label="الفيلق 1 | Legion 1" name="legion_1" value={form.legion_1} onChange={updateForm} inputMode="numeric" />
-              <Field label="الفيلق 2 | Legion 2" name="legion_2" value={form.legion_2} onChange={updateForm} inputMode="numeric" />
-              <Field label="الفيلق 3 | Legion 3" name="legion_3" value={form.legion_3} onChange={updateForm} inputMode="numeric" />
-              <Field label="الفيلق 4 | Legion 4" name="legion_4" value={form.legion_4} onChange={updateForm} inputMode="numeric" />
+              <Field label="القوة الكلية | Total Power" name="total_power" value={form.total_power} onChange={updateForm} inputMode="decimal" placeholder="مثال: 22M" />
+              <Field label="الفيلق 1 | Legion 1" name="legion_1" value={form.legion_1} onChange={updateForm} inputMode="decimal" placeholder="مثال: 5.5M" />
+              <Field label="الفيلق 2 | Legion 2" name="legion_2" value={form.legion_2} onChange={updateForm} inputMode="decimal" placeholder="مثال: 3M" />
+              <Field label="الفيلق 3 | Legion 3" name="legion_3" value={form.legion_3} onChange={updateForm} inputMode="decimal" placeholder="مثال: 900K" />
+              <Field label="الفيلق 4 | Legion 4" name="legion_4" value={form.legion_4} onChange={updateForm} inputMode="decimal" placeholder="مثال: 1.2M" />
               <Select label="المجموعة | Group" name="group_id" value={String(form.group_id)} onChange={updateForm} options={[unassignedGroup, ...groups].map((group) => ({ value: String(group.id), label: `${group.ar} | ${group.en}` }))} />
               <Select label="الدور | Role" name="role" value={form.role} onChange={updateForm} options={(Object.keys(roleLabels) as MemberRole[]).map((role) => ({ value: role, label: roleLabels[role] }))} />
             </div>
@@ -778,17 +805,19 @@ function Field({
   value,
   onChange,
   inputMode,
+  placeholder,
 }: {
   label: string;
   name: string;
   value: string;
   onChange: (event: ChangeEvent<HTMLInputElement>) => void;
-  inputMode?: 'numeric';
+  inputMode?: 'numeric' | 'decimal' | 'text';
+  placeholder?: string;
 }) {
   return (
     <label className="block">
       <span className="mb-2 block text-sm text-slate-300">{label}</span>
-      <input name={name} value={value} onChange={onChange} inputMode={inputMode} className="field" />
+      <input name={name} value={value} onChange={onChange} inputMode={inputMode} placeholder={placeholder} className="field" />
     </label>
   );
 }
