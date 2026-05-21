@@ -28,6 +28,10 @@ import type { LoginEvent, Member, MemberInsert, MemberRole, MemberUpdate } from 
 type GroupId = number;
 type AssignmentId = number;
 type GroupPowerRanges = Record<number, { min: string; max: string }>;
+type DashboardSettings = {
+  group_count?: number;
+  power_ranges?: Record<string, { min: string; max: string }>;
+};
 type MemberForm = {
   name: string;
   total_power: string;
@@ -59,6 +63,8 @@ type GroupDefinition = {
   shadow: string;
   bg: string;
 };
+
+const SETTINGS_KEY = 'dashboard_config';
 
 const groupStyles = [
   { accent: 'text-cyan-200', border: 'border-cyan-300/60', shadow: 'shadow-cyanGlow', bg: 'bg-cyan-300/10' },
@@ -103,6 +109,30 @@ function defaultPowerRanges(count: number): GroupPowerRanges {
     acc[group.id] = defaultRangeForGroup(group.id);
     return acc;
   }, {});
+}
+
+function normalizeGroupCount(value: unknown) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 1 ? Math.min(Math.round(parsed), 24) : 4;
+}
+
+function normalizePowerRanges(value: DashboardSettings['power_ranges'] | undefined, groupCount: number): GroupPowerRanges {
+  const defaults = defaultPowerRanges(groupCount);
+  if (!value) return defaults;
+
+  return Object.entries(value).reduce<GroupPowerRanges>(
+    (acc, [key, range]) => {
+      const id = Number(key);
+      if (Number.isFinite(id) && id > 0) {
+        acc[id] = {
+          min: range?.min ?? defaultRangeForGroup(id).min,
+          max: range?.max ?? defaultRangeForGroup(id).max,
+        };
+      }
+      return acc;
+    },
+    { ...defaults },
+  );
 }
 
 const roleLabels: Record<MemberRole, string> = {
@@ -185,7 +215,7 @@ function loadPowerRanges(groupCount: number): GroupPowerRanges {
 
 function loadGroupCount() {
   const saved = Number(localStorage.getItem('samd-group-count'));
-  return Number.isFinite(saved) && saved >= 1 ? Math.min(Math.round(saved), 24) : 4;
+  return normalizeGroupCount(saved);
 }
 
 async function exportNode(node: HTMLElement | null, fileName: string) {
@@ -361,15 +391,24 @@ export default function App() {
 
     async function loadMembers() {
       setLoading(true);
-      const [{ data, error: loadError }, { data: eventsData }] = await Promise.all([
+      const [{ data, error: loadError }, { data: eventsData }, { data: settingsData }] = await Promise.all([
         supabase.from('members').select('*').order('created_at', { ascending: true }),
         supabase.from('login_events').select('*').order('created_at', { ascending: false }).limit(12),
+        supabase.from('app_settings').select('*').eq('key', SETTINGS_KEY).maybeSingle(),
       ]);
       if (loadError) {
         setError(loadError.message);
       } else {
         setMembers(data ?? []);
         setLoginEvents(eventsData ?? []);
+        if (settingsData?.value) {
+          const settings = settingsData.value as DashboardSettings;
+          const nextCount = normalizeGroupCount(settings.group_count);
+          setGroupCount(nextCount);
+          setPowerRanges(normalizePowerRanges(settings.power_ranges, nextCount));
+          localStorage.setItem('samd-group-count', String(nextCount));
+          localStorage.setItem('samd-power-ranges', JSON.stringify(normalizePowerRanges(settings.power_ranges, nextCount)));
+        }
       }
       setLoading(false);
     }
@@ -407,9 +446,24 @@ export default function App() {
       })
       .subscribe();
 
+    const settingsChannel = supabase
+      .channel('app-settings-realtime-command')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'app_settings' }, (payload) => {
+        const setting = payload.new as { key?: string; value?: DashboardSettings };
+        if (setting.key !== SETTINGS_KEY || !setting.value) return;
+        const nextCount = normalizeGroupCount(setting.value.group_count);
+        const nextRanges = normalizePowerRanges(setting.value.power_ranges, nextCount);
+        setGroupCount(nextCount);
+        setPowerRanges(nextRanges);
+        localStorage.setItem('samd-group-count', String(nextCount));
+        localStorage.setItem('samd-power-ranges', JSON.stringify(nextRanges));
+      })
+      .subscribe();
+
     return () => {
       void supabase.removeChannel(channel);
       void supabase.removeChannel(loginChannel);
+      void supabase.removeChannel(settingsChannel);
     };
   }, [authMode]);
 
@@ -421,6 +475,22 @@ export default function App() {
     localStorage.setItem('samd-group-count', String(groupCount));
     setPowerRanges((current) => ({ ...defaultPowerRanges(groupCount), ...current }));
   }, [groupCount]);
+
+  async function saveDashboardSettings(nextGroupCount: number, nextPowerRanges: GroupPowerRanges) {
+    localStorage.setItem('samd-group-count', String(nextGroupCount));
+    localStorage.setItem('samd-power-ranges', JSON.stringify(nextPowerRanges));
+
+    const { error: settingsError } = await supabase.from('app_settings').upsert({
+      key: SETTINGS_KEY,
+      value: {
+        group_count: nextGroupCount,
+        power_ranges: nextPowerRanges,
+      },
+      updated_at: new Date().toISOString(),
+    });
+
+    if (settingsError) setError(settingsError.message);
+  }
 
   const groupedMembers = useMemo(() => {
     return groups.reduce<Record<GroupId, Member[]>>((acc, group) => {
@@ -527,13 +597,29 @@ export default function App() {
   }
 
   function updatePowerRange(groupId: GroupId, key: 'min' | 'max', value: string) {
-    setPowerRanges((current) => ({
-      ...current,
+    const nextPowerRanges = {
+      ...powerRanges,
       [groupId]: {
-        ...(current[groupId] ?? defaultRangeForGroup(groupId)),
+        ...(powerRanges[groupId] ?? defaultRangeForGroup(groupId)),
         [key]: value,
       },
-    }));
+    };
+    setPowerRanges(nextPowerRanges);
+    void saveDashboardSettings(groupCount, nextPowerRanges);
+  }
+
+  function updateGroupCount(value: string) {
+    const nextGroupCount = normalizeGroupCount(value);
+    const nextPowerRanges = { ...defaultPowerRanges(nextGroupCount), ...powerRanges };
+    setGroupCount(nextGroupCount);
+    setPowerRanges(nextPowerRanges);
+    void saveDashboardSettings(nextGroupCount, nextPowerRanges);
+  }
+
+  function resetPowerRanges() {
+    const nextPowerRanges = defaultPowerRanges(groupCount);
+    setPowerRanges(nextPowerRanges);
+    void saveDashboardSettings(groupCount, nextPowerRanges);
   }
 
   async function autoBalance() {
@@ -695,10 +781,10 @@ export default function App() {
                   className="field w-28 py-2"
                   inputMode="numeric"
                   value={groupCount}
-                  onChange={(event) => setGroupCount(Math.max(1, Math.min(24, Number(event.target.value) || 1)))}
+                  onChange={(event) => updateGroupCount(event.target.value)}
                 />
               </label>
-              <button className="small-btn" onClick={() => setPowerRanges(defaultPowerRanges(groupCount))}>
+              <button className="small-btn" onClick={resetPowerRanges}>
                 Reset
               </button>
             </div>

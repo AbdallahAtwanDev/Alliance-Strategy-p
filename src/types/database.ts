@@ -32,6 +32,21 @@ export type LoginEventInsert = Omit<LoginEvent, 'id' | 'created_at'> & {
   created_at?: string;
 };
 
+export type AppSetting = {
+  key: string;
+  value: {
+    group_count?: number;
+    power_ranges?: Record<string, { min: string; max: string }>;
+  };
+  updated_at: string;
+};
+
+export type AppSettingInsert = Omit<AppSetting, 'updated_at'> & {
+  updated_at?: string;
+};
+
+export type AppSettingUpdate = Partial<AppSettingInsert>;
+
 export type Database = {
   public: {
     Tables: {
@@ -45,6 +60,12 @@ export type Database = {
         Row: LoginEvent;
         Insert: LoginEventInsert;
         Update: never;
+        Relationships: [];
+      };
+      app_settings: {
+        Row: AppSetting;
+        Insert: AppSettingInsert;
+        Update: AppSettingUpdate;
         Relationships: [];
       };
     };
