@@ -5,7 +5,7 @@ import { BrandMark } from './BrandMark';
 export type AuthMode = 'admin' | 'viewer';
 
 type LoginProps = {
-  onLogin: (mode: AuthMode) => void;
+  onLogin: (mode: AuthMode, username: string) => void;
 };
 
 const ADMIN_USERNAME = import.meta.env.VITE_ADMIN_USERNAME || 'admin';
@@ -22,14 +22,14 @@ export function Login({ onLogin }: LoginProps) {
     if (username === ADMIN_USERNAME && password === ADMIN_PASSWORD) {
       localStorage.setItem('samd-authenticated', 'true');
       localStorage.setItem('samd-auth-mode', 'admin');
-      onLogin('admin');
+      onLogin('admin', username);
       return;
     }
 
     if (username.trim() && password === VIEWER_PASSWORD) {
       localStorage.setItem('samd-authenticated', 'true');
       localStorage.setItem('samd-auth-mode', 'viewer');
-      onLogin('viewer');
+      onLogin('viewer', username.trim());
       return;
     }
 

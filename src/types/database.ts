@@ -8,7 +8,7 @@ export type Member = {
   legion_2: number;
   legion_3: number;
   legion_4: number;
-  group_id: 0 | 1 | 2 | 3 | 4;
+  group_id: number;
   role: MemberRole;
   created_at: string;
 };
@@ -20,6 +20,18 @@ export type MemberInsert = Omit<Member, 'id' | 'created_at'> & {
 
 export type MemberUpdate = Partial<Omit<Member, 'id' | 'created_at'>>;
 
+export type LoginEvent = {
+  id: string;
+  username: string;
+  mode: 'admin' | 'viewer';
+  created_at: string;
+};
+
+export type LoginEventInsert = Omit<LoginEvent, 'id' | 'created_at'> & {
+  id?: string;
+  created_at?: string;
+};
+
 export type Database = {
   public: {
     Tables: {
@@ -27,6 +39,12 @@ export type Database = {
         Row: Member;
         Insert: MemberInsert;
         Update: MemberUpdate;
+        Relationships: [];
+      };
+      login_events: {
+        Row: LoginEvent;
+        Insert: LoginEventInsert;
+        Update: never;
         Relationships: [];
       };
     };

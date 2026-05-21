@@ -23,11 +23,11 @@ import {
 import { supabase } from './lib/supabase';
 import { BrandMark } from './components/BrandMark';
 import { Login, type AuthMode } from './components/Login';
-import type { Member, MemberInsert, MemberRole, MemberUpdate } from './types/database';
+import type { LoginEvent, Member, MemberInsert, MemberRole, MemberUpdate } from './types/database';
 
-type GroupId = 1 | 2 | 3 | 4;
-type AssignmentId = 0 | GroupId;
-type GroupPowerRanges = Record<GroupId, { min: string; max: string }>;
+type GroupId = number;
+type AssignmentId = number;
+type GroupPowerRanges = Record<number, { min: string; max: string }>;
 type MemberForm = {
   name: string;
   total_power: string;
@@ -50,7 +50,7 @@ const emptyForm: MemberForm = {
   role: 'Member',
 };
 
-const groups: Array<{
+type GroupDefinition = {
   id: GroupId;
   ar: string;
   en: string;
@@ -58,12 +58,29 @@ const groups: Array<{
   border: string;
   shadow: string;
   bg: string;
-}> = [
-  { id: 1, ar: 'المجموعة الأولى', en: 'Group 1', accent: 'text-cyan-200', border: 'border-cyan-300/60', shadow: 'shadow-cyanGlow', bg: 'bg-cyan-300/10' },
-  { id: 2, ar: 'المجموعة الثانية', en: 'Group 2', accent: 'text-emerald-200', border: 'border-emerald-300/60', shadow: 'shadow-emeraldGlow', bg: 'bg-emerald-300/10' },
-  { id: 3, ar: 'المجموعة الثالثة', en: 'Group 3', accent: 'text-amber-200', border: 'border-amber-300/60', shadow: 'shadow-amberGlow', bg: 'bg-amber-300/10' },
-  { id: 4, ar: 'المجموعة الرابعة', en: 'Group 4', accent: 'text-rose-200', border: 'border-rose-300/60', shadow: 'shadow-roseGlow', bg: 'bg-rose-300/10' },
+};
+
+const groupStyles = [
+  { accent: 'text-cyan-200', border: 'border-cyan-300/60', shadow: 'shadow-cyanGlow', bg: 'bg-cyan-300/10' },
+  { accent: 'text-emerald-200', border: 'border-emerald-300/60', shadow: 'shadow-emeraldGlow', bg: 'bg-emerald-300/10' },
+  { accent: 'text-amber-200', border: 'border-amber-300/60', shadow: 'shadow-amberGlow', bg: 'bg-amber-300/10' },
+  { accent: 'text-rose-200', border: 'border-rose-300/60', shadow: 'shadow-roseGlow', bg: 'bg-rose-300/10' },
+  { accent: 'text-violet-200', border: 'border-violet-300/60', shadow: 'shadow-[0_0_22px_rgba(196,181,253,0.22)]', bg: 'bg-violet-300/10' },
+  { accent: 'text-sky-200', border: 'border-sky-300/60', shadow: 'shadow-[0_0_22px_rgba(125,211,252,0.22)]', bg: 'bg-sky-300/10' },
 ];
+
+function createGroups(count: number): GroupDefinition[] {
+  return Array.from({ length: count }, (_, index) => {
+    const id = index + 1;
+    const style = groupStyles[index % groupStyles.length];
+    return {
+      id,
+      ar: `المجموعة ${id}`,
+      en: `Group ${id}`,
+      ...style,
+    };
+  });
+}
 
 const unassignedGroup = {
   id: 0 as const,
@@ -75,12 +92,18 @@ const unassignedGroup = {
   bg: 'bg-violet-300/10',
 };
 
-const defaultGroupPowerRanges: GroupPowerRanges = {
-  1: { min: '0', max: '50M' },
-  2: { min: '50M', max: '100M' },
-  3: { min: '100M', max: '200M' },
-  4: { min: '200M', max: '999B' },
-};
+function defaultRangeForGroup(groupId: number) {
+  const start = (groupId - 1) * 50;
+  const end = groupId * 50;
+  return { min: groupId === 1 ? '0' : `${start}M`, max: `${end}M` };
+}
+
+function defaultPowerRanges(count: number): GroupPowerRanges {
+  return createGroups(count).reduce<GroupPowerRanges>((acc, group) => {
+    acc[group.id] = defaultRangeForGroup(group.id);
+    return acc;
+  }, {});
+}
 
 const roleLabels: Record<MemberRole, string> = {
   Leader: 'القائد | Leader',
@@ -150,14 +173,19 @@ function payloadFromForm(form: MemberForm): MemberInsert {
   };
 }
 
-function loadPowerRanges(): GroupPowerRanges {
+function loadPowerRanges(groupCount: number): GroupPowerRanges {
   try {
     const saved = localStorage.getItem('samd-power-ranges');
-    if (!saved) return defaultGroupPowerRanges;
-    return { ...defaultGroupPowerRanges, ...JSON.parse(saved) } as GroupPowerRanges;
+    if (!saved) return defaultPowerRanges(groupCount);
+    return { ...defaultPowerRanges(groupCount), ...JSON.parse(saved) } as GroupPowerRanges;
   } catch {
-    return defaultGroupPowerRanges;
+    return defaultPowerRanges(groupCount);
   }
+}
+
+function loadGroupCount() {
+  const saved = Number(localStorage.getItem('samd-group-count'));
+  return Number.isFinite(saved) && saved >= 1 ? Math.min(Math.round(saved), 24) : 4;
 }
 
 async function exportNode(node: HTMLElement | null, fileName: string) {
@@ -274,7 +302,7 @@ async function exportGroupExcel(groupName: string, members: Member[], fileName: 
   downloadBlob(buffer, fileName);
 }
 
-async function exportAllianceExcel(groupedMembers: Record<GroupId, Member[]>) {
+async function exportAllianceExcel(groups: GroupDefinition[], groupedMembers: Record<GroupId, Member[]>) {
   const ExcelJS = await import('exceljs');
   const workbook = new ExcelJS.Workbook();
   workbook.creator = 'abdallah atwan GOV';
@@ -312,6 +340,8 @@ export default function App() {
     return localStorage.getItem('samd-authenticated') === 'true' ? 'admin' : null;
   });
   const [members, setMembers] = useState<Member[]>([]);
+  const [loginEvents, setLoginEvents] = useState<LoginEvent[]>([]);
+  const [groupCount, setGroupCount] = useState(loadGroupCount);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [balancing, setBalancing] = useState(false);
@@ -320,21 +350,26 @@ export default function App() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Member | null>(null);
   const [form, setForm] = useState<MemberForm>(emptyForm);
-  const [powerRanges, setPowerRanges] = useState<GroupPowerRanges>(loadPowerRanges);
+  const [powerRanges, setPowerRanges] = useState<GroupPowerRanges>(() => loadPowerRanges(groupCount));
   const dashboardRef = useRef<HTMLDivElement>(null);
   const groupRefs = useRef<Record<number, HTMLDivElement | null>>({});
   const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const groups = useMemo(() => createGroups(groupCount), [groupCount]);
 
   useEffect(() => {
     if (!authMode) return;
 
     async function loadMembers() {
       setLoading(true);
-      const { data, error: loadError } = await supabase.from('members').select('*').order('created_at', { ascending: true });
+      const [{ data, error: loadError }, { data: eventsData }] = await Promise.all([
+        supabase.from('members').select('*').order('created_at', { ascending: true }),
+        supabase.from('login_events').select('*').order('created_at', { ascending: false }).limit(12),
+      ]);
       if (loadError) {
         setError(loadError.message);
       } else {
         setMembers(data ?? []);
+        setLoginEvents(eventsData ?? []);
       }
       setLoading(false);
     }
@@ -365,8 +400,16 @@ export default function App() {
       })
       .subscribe();
 
+    const loginChannel = supabase
+      .channel('login-events-realtime-command')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'login_events' }, (payload) => {
+        setLoginEvents((current) => [payload.new as LoginEvent, ...current].slice(0, 12));
+      })
+      .subscribe();
+
     return () => {
       void supabase.removeChannel(channel);
+      void supabase.removeChannel(loginChannel);
     };
   }, [authMode]);
 
@@ -374,9 +417,13 @@ export default function App() {
     localStorage.setItem('samd-power-ranges', JSON.stringify(powerRanges));
   }, [powerRanges]);
 
+  useEffect(() => {
+    localStorage.setItem('samd-group-count', String(groupCount));
+    setPowerRanges((current) => ({ ...defaultPowerRanges(groupCount), ...current }));
+  }, [groupCount]);
+
   const groupedMembers = useMemo(() => {
-    return groups.reduce<Record<GroupId, Member[]>>(
-      (acc, group) => {
+    return groups.reduce<Record<GroupId, Member[]>>((acc, group) => {
         acc[group.id] = members
           .filter((member) => member.group_id === group.id)
           .sort((a, b) => {
@@ -384,10 +431,8 @@ export default function App() {
             return rank[a.role] - rank[b.role] || b.total_power - a.total_power || a.name.localeCompare(b.name);
           });
         return acc;
-      },
-      { 1: [], 2: [], 3: [], 4: [] },
-    );
-  }, [members]);
+      }, {});
+  }, [groups, members]);
 
   const stats = useMemo(() => {
     const totalPower = members.reduce((sum, member) => sum + member.total_power, 0);
@@ -404,7 +449,7 @@ export default function App() {
       averagePower: members.length ? Math.round(totalPower / members.length) : 0,
       groupPowers,
     };
-  }, [groupedMembers, members]);
+  }, [groupedMembers, groups, members]);
 
   function openCreate(groupId: AssignmentId = 0) {
     setEditing(null);
@@ -474,11 +519,18 @@ export default function App() {
     }
   }
 
+  async function recordLogin(mode: AuthMode, username: string) {
+    const { error: loginError } = await supabase.from('login_events').insert({ mode, username });
+    if (loginError) {
+      setError(loginError.message);
+    }
+  }
+
   function updatePowerRange(groupId: GroupId, key: 'min' | 'max', value: string) {
     setPowerRanges((current) => ({
       ...current,
       [groupId]: {
-        ...current[groupId],
+        ...(current[groupId] ?? defaultRangeForGroup(groupId)),
         [key]: value,
       },
     }));
@@ -488,14 +540,18 @@ export default function App() {
     setBalancing(true);
     setError('');
 
-    const totals: Record<GroupId, number> = { 1: 0, 2: 0, 3: 0, 4: 0 };
+    const totals = groups.reduce<Record<GroupId, number>>((acc, group) => {
+      acc[group.id] = 0;
+      return acc;
+    }, {});
     const updates: Array<{ member: Member; group_id: AssignmentId }> = [];
     const sorted = [...members].sort((a, b) => b.total_power - a.total_power);
 
     for (const member of sorted) {
       const matchingGroups = groups.filter((group) => {
-        const min = numberValue(powerRanges[group.id].min);
-        const max = numberValue(powerRanges[group.id].max);
+        const range = powerRanges[group.id] ?? defaultRangeForGroup(group.id);
+        const min = numberValue(range.min);
+        const max = numberValue(range.max);
         return member.total_power >= min && member.total_power <= max;
       });
       const target =
@@ -525,7 +581,14 @@ export default function App() {
   }
 
   if (!authMode) {
-    return <Login onLogin={(mode) => setAuthMode(mode)} />;
+    return (
+      <Login
+        onLogin={(mode, username) => {
+          setAuthMode(mode);
+          void recordLogin(mode, username);
+        }}
+      />
+    );
   }
 
   const isViewer = authMode === 'viewer';
@@ -552,20 +615,18 @@ export default function App() {
 
           <div className="flex flex-wrap gap-2">
             {!isViewer && (
-              <>
-                <button className="command-btn bg-cyan-300 text-slate-950 hover:bg-cyan-200" onClick={() => openCreate()}>
-                  <Plus size={17} /> عضو جديد في الانتظار | Add to Pool
-                </button>
-                <button className="command-btn border border-emerald-300/50 bg-emerald-300/10 text-emerald-100 hover:bg-emerald-300/20" onClick={autoBalance} disabled={balancing || members.length === 0}>
-                  {balancing ? <Loader2 className="animate-spin" size={17} /> : <RefreshCw size={17} />}
-                  توزيع تلقائي | Auto-Balance
-                </button>
-              </>
+              <button className="command-btn bg-cyan-300 text-slate-950 hover:bg-cyan-200" onClick={() => openCreate()}>
+                <Plus size={17} /> عضو جديد في الانتظار | Add to Pool
+              </button>
             )}
+            <button className="command-btn border border-emerald-300/50 bg-emerald-300/10 text-emerald-100 hover:bg-emerald-300/20" onClick={autoBalance} disabled={balancing || members.length === 0}>
+              {balancing ? <Loader2 className="animate-spin" size={17} /> : <RefreshCw size={17} />}
+              توزيع تلقائي | Auto-Balance
+            </button>
             <button className="command-btn border border-slate-600 bg-slate-900 text-slate-200 hover:border-cyan-300/60" onClick={() => exportNode(dashboardRef.current, 'alliance-dashboard.png')}>
               <Download size={17} /> snapshot
             </button>
-            <button className="command-btn border border-emerald-300/50 bg-emerald-300/10 text-emerald-100 hover:bg-emerald-300/20" onClick={() => void runExcelExport('all', () => exportAllianceExcel(groupedMembers))} disabled={excelExporting !== null}>
+            <button className="command-btn border border-emerald-300/50 bg-emerald-300/10 text-emerald-100 hover:bg-emerald-300/20" onClick={() => void runExcelExport('all', () => exportAllianceExcel(groups, groupedMembers))} disabled={excelExporting !== null}>
               {excelExporting === 'all' ? <Loader2 className="animate-spin" size={17} /> : <FileSpreadsheet size={17} />} Excel
             </button>
             <button className="icon-btn" onClick={logout} title="خروج | Logout">
@@ -592,7 +653,31 @@ export default function App() {
           </section>
         )}
 
-        {!isViewer && <section className="mb-5 rounded-lg border border-slate-800 bg-slate-900/70 p-4">
+        {authMode === 'admin' && (
+          <section className="mb-5 rounded-lg border border-slate-800 bg-slate-900/70 p-4">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-black text-slate-50">سجل الدخول</h2>
+                <p className="text-sm text-slate-400">آخر من دخل لوحة التحالف</p>
+              </div>
+              <span className="rounded-md bg-red-600 px-3 py-1 text-sm font-black text-white">GOV</span>
+            </div>
+            <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+              {loginEvents.map((event) => (
+                <div key={event.id} className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
+                  <p className="font-black text-cyan-100">{event.username}</p>
+                  <p className="mt-1 text-sm text-slate-400">{event.mode === 'admin' ? 'أدمن' : 'مشاهد'}</p>
+                  <p className="mt-2 text-xs text-slate-500" dir="ltr">
+                    {new Date(event.created_at).toLocaleString()}
+                  </p>
+                </div>
+              ))}
+              {loginEvents.length === 0 && <p className="text-sm text-slate-500">لا توجد تسجيلات دخول بعد</p>}
+            </div>
+          </section>
+        )}
+
+        <section className="mb-5 rounded-lg border border-slate-800 bg-slate-900/70 p-4">
           <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 className="flex items-center gap-2 text-lg font-black text-slate-50">
@@ -600,12 +685,23 @@ export default function App() {
                 قواعد التوزيع التلقائي | Auto Power Rules
               </h2>
               <p className="mt-1 text-sm text-slate-400">
-                حدد مدى القوة لكل مجموعة. أي عضو خارج كل المديات سيبقى في قائمة الانتظار.
+                حدد عدد المجموعات ومدى القوة لكل مجموعة. أي عضو خارج كل المديات سيبقى في قائمة الانتظار.
               </p>
             </div>
-            <button className="small-btn" onClick={() => setPowerRanges(defaultGroupPowerRanges)}>
-              Reset
-            </button>
+            <div className="flex flex-wrap items-end gap-2">
+              <label className="block">
+                <span className="mb-1 block text-xs text-slate-400">عدد المجموعات</span>
+                <input
+                  className="field w-28 py-2"
+                  inputMode="numeric"
+                  value={groupCount}
+                  onChange={(event) => setGroupCount(Math.max(1, Math.min(24, Number(event.target.value) || 1)))}
+                />
+              </label>
+              <button className="small-btn" onClick={() => setPowerRanges(defaultPowerRanges(groupCount))}>
+                Reset
+              </button>
+            </div>
           </div>
 
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
@@ -620,7 +716,7 @@ export default function App() {
                     <input
                       className="field py-2"
                       inputMode="decimal"
-                      value={powerRanges[group.id].min}
+                      value={(powerRanges[group.id] ?? defaultRangeForGroup(group.id)).min}
                       onChange={(event) => updatePowerRange(group.id, 'min', event.target.value)}
                     />
                   </label>
@@ -629,7 +725,7 @@ export default function App() {
                     <input
                       className="field py-2"
                       inputMode="decimal"
-                      value={powerRanges[group.id].max}
+                      value={(powerRanges[group.id] ?? defaultRangeForGroup(group.id)).max}
                       onChange={(event) => updatePowerRange(group.id, 'max', event.target.value)}
                     />
                   </label>
@@ -637,7 +733,7 @@ export default function App() {
               </div>
             ))}
           </div>
-        </section>}
+        </section>
 
         {loading ? (
           <div className="grid min-h-[45vh] place-items-center text-cyan-200">
@@ -645,9 +741,10 @@ export default function App() {
           </div>
         ) : (
           <>
-          {!isViewer && <section className="mb-4">
+          <section className="mb-4">
             <GroupColumn
               group={unassignedGroup}
+              groups={groups}
               members={members
                 .filter((member) => member.group_id === 0)
                 .sort((a, b) => b.total_power - a.total_power || a.name.localeCompare(b.name))}
@@ -665,12 +762,13 @@ export default function App() {
               cardRefs={cardRefs}
               readOnly={isViewer}
             />
-          </section>}
+          </section>
           <section className="grid gap-4 xl:grid-cols-4">
             {groups.map((group) => (
               <GroupColumn
                 key={group.id}
                 group={group}
+                groups={groups}
                 members={groupedMembers[group.id]}
                 power={stats.groupPowers.find((item) => item.id === group.id)?.power ?? 0}
                 onCreate={() => openCreate(0)}
@@ -751,6 +849,7 @@ function Stat({ icon, label, value }: { icon: JSX.Element; label: string; value:
 
 function GroupColumn({
   group,
+  groups,
   members,
   power,
   onCreate,
@@ -764,7 +863,8 @@ function GroupColumn({
   cardRefs,
   readOnly,
 }: {
-  group: (typeof groups)[number] | typeof unassignedGroup;
+  group: GroupDefinition | typeof unassignedGroup;
+  groups: GroupDefinition[];
   members: Member[];
   power: number;
   onCreate: () => void;
@@ -826,6 +926,7 @@ function GroupColumn({
           <MemberCard
             key={member.id}
             member={member}
+            groups={groups}
             elevated
             onEdit={onEdit}
             onDelete={onDelete}
@@ -847,6 +948,7 @@ function GroupColumn({
               <MemberCard
                 key={member.id}
                 member={member}
+                groups={groups}
                 onEdit={onEdit}
                 onDelete={onDelete}
                 onQuickUpdate={onQuickUpdate}
@@ -871,6 +973,7 @@ function GroupColumn({
 
 function MemberCard({
   member,
+  groups,
   elevated = false,
   onEdit,
   onDelete,
@@ -880,6 +983,7 @@ function MemberCard({
   readOnly,
 }: {
   member: Member;
+  groups: GroupDefinition[];
   elevated?: boolean;
   onEdit: (member: Member) => void;
   onDelete: (member: Member) => void;
