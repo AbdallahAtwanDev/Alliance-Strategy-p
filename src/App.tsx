@@ -104,6 +104,10 @@ function defaultRangeForGroup(groupId: number) {
   return { min: groupId === 1 ? '0' : `${start}M`, max: `${end}M` };
 }
 
+function autoBalancePower(member: Member) {
+  return member.legion_1 ?? 0;
+}
+
 function defaultPowerRanges(count: number): GroupPowerRanges {
   return createGroups(count).reduce<GroupPowerRanges>((acc, group) => {
     acc[group.id] = defaultRangeForGroup(group.id);
@@ -631,21 +635,22 @@ export default function App() {
       return acc;
     }, {});
     const updates: Array<{ member: Member; group_id: AssignmentId }> = [];
-    const sorted = [...members].sort((a, b) => b.total_power - a.total_power);
+    const sorted = [...members].sort((a, b) => autoBalancePower(b) - autoBalancePower(a));
 
     for (const member of sorted) {
+      const memberPower = autoBalancePower(member);
       const matchingGroups = groups.filter((group) => {
         const range = powerRanges[group.id] ?? defaultRangeForGroup(group.id);
         const min = numberValue(range.min);
         const max = numberValue(range.max);
-        return member.total_power >= min && member.total_power <= max;
+        return memberPower >= min && memberPower <= max;
       });
       const target =
         matchingGroups.length > 0
           ? matchingGroups.reduce((lowest, group) => (totals[group.id] < totals[lowest] ? group.id : lowest), matchingGroups[0].id)
           : 0;
 
-      if (target !== 0) totals[target] += member.total_power;
+      if (target !== 0) totals[target] += memberPower;
       if (member.group_id !== target) updates.push({ member, group_id: target });
     }
 
@@ -771,7 +776,7 @@ export default function App() {
                 قواعد التوزيع التلقائي | Auto Power Rules
               </h2>
               <p className="mt-1 text-sm text-slate-400">
-                حدد عدد المجموعات ومدى القوة لكل مجموعة. أي عضو خارج كل المديات سيبقى في قائمة الانتظار.
+                حدد عدد المجموعات ومدى قوة الفيلق الأول لكل مجموعة. أي عضو خارج كل المديات سيبقى في قائمة الانتظار.
               </p>
             </div>
             <div className="flex flex-wrap items-end gap-2">
