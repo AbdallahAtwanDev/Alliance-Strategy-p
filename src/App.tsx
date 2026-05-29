@@ -645,12 +645,10 @@ export default function App() {
         const max = numberValue(range.max);
         return memberPower >= min && memberPower <= max;
       });
-      const target =
-        matchingGroups.length > 0
-          ? matchingGroups.reduce((lowest, group) => (totals[group.id] < totals[lowest] ? group.id : lowest), matchingGroups[0].id)
-          : 0;
+      const candidateGroups = matchingGroups.length > 0 ? matchingGroups : groups;
+      const target = candidateGroups.reduce((lowest, group) => (totals[group.id] < totals[lowest] ? group.id : lowest), candidateGroups[0].id);
 
-      if (target !== 0) totals[target] += memberPower;
+      totals[target] += memberPower;
       if (member.group_id !== target) updates.push({ member, group_id: target });
     }
 
@@ -776,7 +774,7 @@ export default function App() {
                 قواعد التوزيع التلقائي | Auto Power Rules
               </h2>
               <p className="mt-1 text-sm text-slate-400">
-                حدد عدد المجموعات ومدى قوة الفيلق الأول لكل مجموعة. أي عضو خارج كل المديات سيبقى في قائمة الانتظار.
+                حدد عدد المجموعات ومدى قوة الفيلق الأول لكل مجموعة. أي عضو خارج المديات سينتقل لأقل مجموعة حملًا.
               </p>
             </div>
             <div className="flex flex-wrap items-end gap-2">
