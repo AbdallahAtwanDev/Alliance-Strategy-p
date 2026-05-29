@@ -108,6 +108,71 @@ function autoBalancePower(member: Member) {
   return member.legion_1 ?? 0;
 }
 
+function groupRange(groupId: GroupId, powerRanges: GroupPowerRanges) {
+  const range = powerRanges[groupId] ?? defaultRangeForGroup(groupId);
+  const min = numberValue(range.min);
+  const max = numberValue(range.max);
+  return { min: Math.min(min, max), max: Math.max(min, max) };
+}
+
+function rangeDistance(power: number, min: number, max: number) {
+  if (power >= min && power <= max) return 0;
+  return power < min ? min - power : power - max;
+}
+
+function bestGroupForPower(power: number, groups: GroupDefinition[], powerRanges: GroupPowerRanges, totals: Record<GroupId, number>) {
+  return groups.reduce((best, group) => {
+    const bestRange = groupRange(best.id, powerRanges);
+    const currentRange = groupRange(group.id, powerRanges);
+    const bestDistance = rangeDistance(power, bestRange.min, bestRange.max);
+    const currentDistance = rangeDistance(power, currentRange.min, currentRange.max);
+
+    if (currentDistance < bestDistance) return group;
+    if (currentDistance > bestDistance) return best;
+    return totals[group.id] < totals[best.id] ? group : best;
+  }, groups[0]);
+}
+
+function normalizeName(value: string) {
+  return value
+    .normalize('NFKD')
+    .replace(/[\u064B-\u065F\u0670]/g, '')
+    .replace(/[أإآٱ]/g, 'ا')
+    .replace(/[ى]/g, 'ي')
+    .replace(/[ة]/g, 'ه')
+    .toLowerCase()
+    .replace(/[^a-z0-9\u0600-\u06FF]+/g, '');
+}
+
+function editDistance(a: string, b: string) {
+  const previous = Array.from({ length: b.length + 1 }, (_, index) => index);
+  const current = Array.from({ length: b.length + 1 }, () => 0);
+
+  for (let i = 1; i <= a.length; i += 1) {
+    current[0] = i;
+    for (let j = 1; j <= b.length; j += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      current[j] = Math.min(current[j - 1] + 1, previous[j] + 1, previous[j - 1] + cost);
+    }
+    previous.splice(0, previous.length, ...current);
+  }
+
+  return previous[b.length];
+}
+
+function memberNameMatchScore(query: string, member: Member) {
+  const normalizedQuery = normalizeName(query);
+  const normalizedName = normalizeName(member.name);
+  if (normalizedQuery.length < 2 || normalizedName.length === 0) return 0;
+  if (normalizedName === normalizedQuery) return 100;
+  if (normalizedName.includes(normalizedQuery)) return 90 - Math.max(0, normalizedName.length - normalizedQuery.length);
+  if (normalizedQuery.includes(normalizedName)) return 80 - Math.max(0, normalizedQuery.length - normalizedName.length);
+
+  const distance = editDistance(normalizedQuery, normalizedName);
+  const allowedDistance = Math.max(1, Math.floor(Math.max(normalizedQuery.length, normalizedName.length) * 0.3));
+  return distance <= allowedDistance ? 70 - distance : 0;
+}
+
 function defaultPowerRanges(count: number): GroupPowerRanges {
   return createGroups(count).reduce<GroupPowerRanges>((acc, group) => {
     acc[group.id] = defaultRangeForGroup(group.id);
@@ -389,6 +454,15 @@ export default function App() {
   const groupRefs = useRef<Record<number, HTMLDivElement | null>>({});
   const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const groups = useMemo(() => createGroups(groupCount), [groupCount]);
+  const nameMatches = useMemo(() => {
+    if (!modalOpen || editing) return [];
+    return members
+      .map((member) => ({ member, score: memberNameMatchScore(form.name, member) }))
+      .filter((item) => item.score > 0)
+      .sort((a, b) => b.score - a.score || a.member.name.localeCompare(b.member.name))
+      .slice(0, 5)
+      .map((item) => item.member);
+  }, [editing, form.name, members, modalOpen]);
 
   useEffect(() => {
     if (!authMode) return;
@@ -537,6 +611,11 @@ export default function App() {
     setModalOpen(true);
   }
 
+  function useExistingMember(member: Member) {
+    setEditing(member);
+    setForm(formFromMember(member));
+  }
+
   function updateForm(event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) {
     const { name, value } = event.target;
     setForm((current) => ({
@@ -639,14 +718,7 @@ export default function App() {
 
     for (const member of sorted) {
       const memberPower = autoBalancePower(member);
-      const matchingGroups = groups.filter((group) => {
-        const range = powerRanges[group.id] ?? defaultRangeForGroup(group.id);
-        const min = numberValue(range.min);
-        const max = numberValue(range.max);
-        return memberPower >= min && memberPower <= max;
-      });
-      const candidateGroups = matchingGroups.length > 0 ? matchingGroups : groups;
-      const target = candidateGroups.reduce((lowest, group) => (totals[group.id] < totals[lowest] ? group.id : lowest), candidateGroups[0].id);
+      const target = bestGroupForPower(memberPower, groups, powerRanges, totals).id;
 
       totals[target] += memberPower;
       if (member.group_id !== target) updates.push({ member, group_id: target });
@@ -893,7 +965,7 @@ export default function App() {
             </div>
 
             <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="الاسم | Name" name="name" value={form.name} onChange={updateForm} />
+              <SmartNameField value={form.name} onChange={updateForm} matches={nameMatches} onUseExisting={useExistingMember} />
               <Field label="القوة الكلية | Total Power" name="total_power" value={form.total_power} onChange={updateForm} inputMode="decimal" placeholder="مثال: 22M" />
               <Field label="الفيلق 1 | Legion 1" name="legion_1" value={form.legion_1} onChange={updateForm} inputMode="decimal" placeholder="مثال: 5.5M" />
               <Field label="الفيلق 2 | Legion 2" name="legion_2" value={form.legion_2} onChange={updateForm} inputMode="decimal" placeholder="مثال: 3M" />
@@ -1149,6 +1221,45 @@ function MemberCard({
         </div>
       </div>}
     </div>
+  );
+}
+
+function SmartNameField({
+  value,
+  onChange,
+  matches,
+  onUseExisting,
+}: {
+  value: string;
+  onChange: (event: ChangeEvent<HTMLInputElement>) => void;
+  matches: Member[];
+  onUseExisting: (member: Member) => void;
+}) {
+  return (
+    <label className="block sm:col-span-2">
+      <span className="mb-2 block text-sm text-slate-300">الاسم | Name</span>
+      <input name="name" value={value} onChange={onChange} className="field" />
+      {matches.length > 0 && (
+        <div className="mt-3 space-y-2 border border-cyan-300/25 bg-cyan-300/5 p-3">
+          <p className="text-xs text-cyan-100">أسماء مشابهة موجودة | Similar saved members</p>
+          {matches.map((member) => (
+            <button
+              key={member.id}
+              type="button"
+              className="w-full border border-slate-700 bg-slate-900/80 p-3 text-right transition hover:border-cyan-300/60 hover:bg-cyan-300/10"
+              onClick={() => onUseExisting(member)}
+            >
+              <span className="block font-black text-slate-50">{member.name}</span>
+              <span className="mt-1 block text-xs text-slate-400" dir="ltr">
+                Total {formatPower(member.total_power)} · L1 {formatPower(member.legion_1)} · L2 {formatPower(member.legion_2)} · L3 {formatPower(member.legion_3)} · L4{' '}
+                {formatPower(member.legion_4)}
+              </span>
+            </button>
+          ))}
+          <p className="text-xs text-slate-400">لإضافته كاسم جديد، أكمل الحفظ بدون اختيار أي اسم من القائمة.</p>
+        </div>
+      )}
+    </label>
   );
 }
 
