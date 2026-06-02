@@ -28,6 +28,35 @@ alter table public.members add column if not exists previous_legion_4 bigint def
 update public.members set updated_at = coalesce(updated_at, created_at, now());
 update public.members set previous_legion_1 = coalesce(previous_legion_1, legion_1, 0), previous_legion_2 = coalesce(previous_legion_2, legion_2, 0), previous_legion_3 = coalesce(previous_legion_3, legion_3, 0), previous_legion_4 = coalesce(previous_legion_4, legion_4, 0);
 
+create or replace function public.sync_member_change()
+returns trigger
+language plpgsql
+as $$
+begin
+  if tg_op = 'UPDATE' then
+    new.previous_legion_1 := old.legion_1;
+    new.previous_legion_2 := old.legion_2;
+    new.previous_legion_3 := old.legion_3;
+    new.previous_legion_4 := old.legion_4;
+    new.updated_at := now();
+  elsif tg_op = 'INSERT' then
+    new.previous_legion_1 := coalesce(new.previous_legion_1, new.legion_1, 0);
+    new.previous_legion_2 := coalesce(new.previous_legion_2, new.legion_2, 0);
+    new.previous_legion_3 := coalesce(new.previous_legion_3, new.legion_3, 0);
+    new.previous_legion_4 := coalesce(new.previous_legion_4, new.legion_4, 0);
+    new.updated_at := coalesce(new.updated_at, now());
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists sync_member_change_trigger on public.members;
+create trigger sync_member_change_trigger
+before insert or update on public.members
+for each row
+execute function public.sync_member_change();
+
 alter table public.members alter column group_id set default 0;
 alter table public.members drop constraint if exists members_group_id_check;
 alter table public.members add constraint members_group_id_check check (group_id >= 0);
