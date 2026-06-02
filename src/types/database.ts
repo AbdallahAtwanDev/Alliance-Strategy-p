@@ -11,14 +11,16 @@ export type Member = {
   group_id: number;
   role: MemberRole;
   created_at: string;
+  updated_at: string;
 };
 
-export type MemberInsert = Omit<Member, 'id' | 'created_at'> & {
+export type MemberInsert = Omit<Member, 'id' | 'created_at' | 'updated_at'> & {
   id?: string;
   created_at?: string;
+  updated_at?: string;
 };
 
-export type MemberUpdate = Partial<Omit<Member, 'id' | 'created_at'>>;
+export type MemberUpdate = Partial<Omit<Member, 'id' | 'created_at' | 'updated_at'>>;
 
 export type LoginEvent = {
   id: string;

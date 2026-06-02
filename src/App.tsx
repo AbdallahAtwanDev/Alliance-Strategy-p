@@ -269,6 +269,14 @@ function payloadFromForm(form: MemberForm): MemberInsert {
     legion_4: numberValue(form.legion_4),
     group_id: form.group_id,
     role: form.role,
+    updated_at: new Date().toISOString(),
+  };
+}
+
+function withUpdatedAt<T extends Record<string, unknown>>(value: T) {
+  return {
+    ...value,
+    updated_at: new Date().toISOString(),
   };
 }
 
@@ -470,7 +478,7 @@ export default function App() {
     async function loadMembers() {
       setLoading(true);
       const [{ data, error: loadError }, { data: eventsData }, { data: settingsData }] = await Promise.all([
-        supabase.from('members').select('*').order('created_at', { ascending: true }),
+        supabase.from('members').select('*').order('updated_at', { ascending: false }).order('created_at', { ascending: false }),
         supabase.from('login_events').select('*').order('created_at', { ascending: false }).limit(12),
         supabase.from('app_settings').select('*').eq('key', SETTINGS_KEY).maybeSingle(),
       ]);
@@ -599,6 +607,15 @@ export default function App() {
     };
   }, [groupedMembers, groups, members]);
 
+  const latestDataUpdate = useMemo(() => {
+    return members.reduce<string | null>((latest, member) => {
+      const current = member.updated_at ?? member.created_at;
+      if (!current) return latest;
+      if (!latest) return current;
+      return new Date(current).getTime() > new Date(latest).getTime() ? current : latest;
+    }, null);
+  }, [members]);
+
   function openCreate(groupId: AssignmentId = 0) {
     setEditing(null);
     setForm({ ...emptyForm, group_id: groupId });
@@ -635,7 +652,7 @@ export default function App() {
     setSaving(true);
     setError('');
     const response = editing
-      ? await supabase.from('members').update(payload as MemberUpdate).eq('id', editing.id)
+      ? await supabase.from('members').update(withUpdatedAt(payload as MemberUpdate)).eq('id', editing.id)
       : await supabase.from('members').insert(payload);
 
     if (response.error) {
@@ -656,7 +673,7 @@ export default function App() {
   }
 
   async function quickUpdate(member: Member, update: MemberUpdate) {
-    const { error: updateError } = await supabase.from('members').update(update).eq('id', member.id);
+    const { error: updateError } = await supabase.from('members').update(withUpdatedAt(update)).eq('id', member.id);
     if (updateError) setError(updateError.message);
   }
 
@@ -725,7 +742,10 @@ export default function App() {
     }
 
     for (const update of updates) {
-      const { error: updateError } = await supabase.from('members').update({ group_id: update.group_id }).eq('id', update.member.id);
+      const { error: updateError } = await supabase
+        .from('members')
+        .update(withUpdatedAt({ group_id: update.group_id }))
+        .eq('id', update.member.id);
       if (updateError) {
         setError(updateError.message);
         break;
@@ -771,6 +791,9 @@ export default function App() {
             <h1 className="mt-2 text-3xl font-black sm:text-4xl">لوحة إدارة التحالف الاستراتيجي</h1>
             <p className="mt-2 text-sm text-slate-400" dir="ltr">
               Live bilingual military operations dashboard
+            </p>
+            <p className="mt-2 text-xs text-slate-500" dir="ltr">
+              Last data update: {latestDataUpdate ? new Date(latestDataUpdate).toLocaleString() : 'n/a'}
             </p>
           </div>
 

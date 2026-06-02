@@ -10,10 +10,14 @@ create table if not exists public.members (
   legion_4 bigint default 0,
   group_id int default 0 check (group_id >= 0),
   role text default 'Member' check (role in ('Leader', 'Deputy', 'Member')),
-  created_at timestamp with time zone default now()
+  created_at timestamp with time zone default now(),
+  updated_at timestamp with time zone default now()
 );
 
 alter table public.members enable row level security;
+
+alter table public.members add column if not exists updated_at timestamp with time zone default now();
+update public.members set updated_at = coalesce(updated_at, created_at, now());
 
 alter table public.members alter column group_id set default 0;
 alter table public.members drop constraint if exists members_group_id_check;
