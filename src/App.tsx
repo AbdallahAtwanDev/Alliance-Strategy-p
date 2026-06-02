@@ -1227,6 +1227,9 @@ function MemberCard({
           <p className="mt-1 text-xs text-slate-500" dir="ltr">
             ID {member.id.slice(0, 8)}
           </p>
+          <p className="mt-1 text-xs text-cyan-200" dir="ltr">
+            Updated {member.updated_at ? new Date(member.updated_at).toLocaleString() : 'n/a'}
+          </p>
         </div>
         <button className="icon-btn" onClick={onExport} title="تصدير البطاقة | Export card">
           <Download size={15} />
