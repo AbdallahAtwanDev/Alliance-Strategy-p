@@ -8,6 +8,10 @@ export type Member = {
   legion_2: number;
   legion_3: number;
   legion_4: number;
+  previous_legion_1: number;
+  previous_legion_2: number;
+  previous_legion_3: number;
+  previous_legion_4: number;
   group_id: number;
   role: MemberRole;
   created_at: string;

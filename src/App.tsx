@@ -43,6 +43,8 @@ type MemberForm = {
   role: MemberRole;
 };
 
+type MemberSnapshot = Pick<Member, 'legion_1' | 'legion_2' | 'legion_3' | 'legion_4' | 'total_power' | 'group_id' | 'role' | 'name'>;
+
 const emptyForm: MemberForm = {
   name: '',
   total_power: '',
@@ -260,13 +262,22 @@ function formFromMember(member: Member): MemberForm {
 }
 
 function payloadFromForm(form: MemberForm): MemberInsert {
+  const legion_1 = numberValue(form.legion_1);
+  const legion_2 = numberValue(form.legion_2);
+  const legion_3 = numberValue(form.legion_3);
+  const legion_4 = numberValue(form.legion_4);
+  const total_power = numberValue(form.total_power);
   return {
     name: form.name.trim(),
-    total_power: numberValue(form.total_power),
-    legion_1: numberValue(form.legion_1),
-    legion_2: numberValue(form.legion_2),
-    legion_3: numberValue(form.legion_3),
-    legion_4: numberValue(form.legion_4),
+    total_power,
+    legion_1,
+    legion_2,
+    legion_3,
+    legion_4,
+    previous_legion_1: legion_1,
+    previous_legion_2: legion_2,
+    previous_legion_3: legion_3,
+    previous_legion_4: legion_4,
     group_id: form.group_id,
     role: form.role,
     updated_at: new Date().toISOString(),
@@ -278,6 +289,16 @@ function withUpdatedAt<T extends Record<string, unknown>>(value: T) {
     ...value,
     updated_at: new Date().toISOString(),
   };
+}
+
+function snapshotForUpdate(member: Member, update: MemberUpdate) {
+  return withUpdatedAt({
+    ...update,
+    previous_legion_1: member.legion_1,
+    previous_legion_2: member.legion_2,
+    previous_legion_3: member.legion_3,
+    previous_legion_4: member.legion_4,
+  });
 }
 
 function loadPowerRanges(groupCount: number): GroupPowerRanges {
@@ -293,6 +314,15 @@ function loadPowerRanges(groupCount: number): GroupPowerRanges {
 function loadGroupCount() {
   const saved = Number(localStorage.getItem('samd-group-count'));
   return normalizeGroupCount(saved);
+}
+
+function legionDelta(current: number, previous: number) {
+  return current - previous;
+}
+
+function formatDelta(value: number) {
+  if (value === 0) return '0';
+  return `${value > 0 ? '+' : ''}${formatPower(value)}`;
 }
 
 async function exportNode(node: HTMLElement | null, fileName: string) {
@@ -652,7 +682,7 @@ export default function App() {
     setSaving(true);
     setError('');
     const response = editing
-      ? await supabase.from('members').update(withUpdatedAt(payload as MemberUpdate)).eq('id', editing.id)
+      ? await supabase.from('members').update(snapshotForUpdate(editing, payload as MemberUpdate)).eq('id', editing.id)
       : await supabase.from('members').insert(payload);
 
     if (response.error) {
@@ -673,7 +703,7 @@ export default function App() {
   }
 
   async function quickUpdate(member: Member, update: MemberUpdate) {
-    const { error: updateError } = await supabase.from('members').update(withUpdatedAt(update)).eq('id', member.id);
+    const { error: updateError } = await supabase.from('members').update(snapshotForUpdate(member, update)).eq('id', member.id);
     if (updateError) setError(updateError.message);
   }
 
@@ -744,7 +774,7 @@ export default function App() {
     for (const update of updates) {
       const { error: updateError } = await supabase
         .from('members')
-        .update(withUpdatedAt({ group_id: update.group_id }))
+        .update(snapshotForUpdate(update.member, { group_id: update.group_id }))
         .eq('id', update.member.id);
       if (updateError) {
         setError(updateError.message);
@@ -792,9 +822,14 @@ export default function App() {
             <p className="mt-2 text-sm text-slate-400" dir="ltr">
               Live bilingual military operations dashboard
             </p>
-            <p className="mt-2 text-xs text-slate-500" dir="ltr">
-              Last data update: {latestDataUpdate ? new Date(latestDataUpdate).toLocaleString() : 'n/a'}
-            </p>
+            <div className="mt-2 flex flex-wrap gap-3 text-xs text-slate-500" dir="ltr">
+              <span>Last data update: {latestDataUpdate ? new Date(latestDataUpdate).toLocaleString() : 'n/a'}</span>
+              {members[0] && (
+                <span>
+                  Latest L1 delta: {formatDelta(legionDelta(members[0].legion_1, members[0].previous_legion_1 ?? members[0].legion_1))}
+                </span>
+              )}
+            </div>
           </div>
 
           <div className="flex flex-wrap gap-2">
@@ -1206,11 +1241,19 @@ function MemberCard({
       </div>
 
       <div className="mb-3 grid grid-cols-2 gap-2 text-xs">
-        {[member.legion_1, member.legion_2, member.legion_3, member.legion_4].map((value, index) => (
+        {[
+          [member.legion_1, member.previous_legion_1],
+          [member.legion_2, member.previous_legion_2],
+          [member.legion_3, member.previous_legion_3],
+          [member.legion_4, member.previous_legion_4],
+        ].map(([value, previous], index) => (
           <div key={index} className="rounded-lg border border-slate-800 bg-slate-950/50 p-2">
             <p className="text-slate-500">L{index + 1}</p>
             <p className="font-bold text-slate-200" dir="ltr">
               {formatPower(value)}
+            </p>
+            <p className={`mt-1 text-[11px] ${legionDelta(value, previous ?? value) >= 0 ? 'text-emerald-300' : 'text-rose-300'}`} dir="ltr">
+              {formatDelta(legionDelta(value, previous ?? value))}
             </p>
           </div>
         ))}

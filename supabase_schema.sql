@@ -8,6 +8,10 @@ create table if not exists public.members (
   legion_2 bigint default 0,
   legion_3 bigint default 0,
   legion_4 bigint default 0,
+  previous_legion_1 bigint default 0,
+  previous_legion_2 bigint default 0,
+  previous_legion_3 bigint default 0,
+  previous_legion_4 bigint default 0,
   group_id int default 0 check (group_id >= 0),
   role text default 'Member' check (role in ('Leader', 'Deputy', 'Member')),
   created_at timestamp with time zone default now(),
@@ -17,7 +21,12 @@ create table if not exists public.members (
 alter table public.members enable row level security;
 
 alter table public.members add column if not exists updated_at timestamp with time zone default now();
+alter table public.members add column if not exists previous_legion_1 bigint default 0;
+alter table public.members add column if not exists previous_legion_2 bigint default 0;
+alter table public.members add column if not exists previous_legion_3 bigint default 0;
+alter table public.members add column if not exists previous_legion_4 bigint default 0;
 update public.members set updated_at = coalesce(updated_at, created_at, now());
+update public.members set previous_legion_1 = coalesce(previous_legion_1, legion_1, 0), previous_legion_2 = coalesce(previous_legion_2, legion_2, 0), previous_legion_3 = coalesce(previous_legion_3, legion_3, 0), previous_legion_4 = coalesce(previous_legion_4, legion_4, 0);
 
 alter table public.members alter column group_id set default 0;
 alter table public.members drop constraint if exists members_group_id_check;
